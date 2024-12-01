@@ -9,6 +9,8 @@ import gymnasium as gym
 import torch
 import numpy as np
 
+import omni.isaac.core.utils.prims as prim_utils
+
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.assets import Articulation
 from omni.isaac.lab.envs import DirectRLEnv
@@ -21,10 +23,14 @@ from .targetVisualization import targetVisualization as targetVis
 import wandb
 
 my_config = {
-    "run_id": "Quadruped_tripod_root_curriculum-02_resampeld-6s",
-    "epoch_num":8000,
-    "description": "8000 to 16000 epochs, command curriculum in x and y axis, resampled every 6s, continues training",
-    "xyz": [[0.3, 0.5], [-0.2, 0.0], [0.1, 0.4]],
+    "run_id": "Quadruped_tripod_root_curri-01-xyz_resampeld-6s_Re-14_mod-r-f-4-continue",
+    "epoch_num": 4000,
+    "description": "8000 to 12000 epochs, command curriculum in x and y axis, resampled every 6s, change root frame position to (x,y,z), maybe 0.7 is too hight for it at the beginning",
+    "ex-max" : 0.8,
+    "ex-step" : 0.1,
+    "ex-threshold" : 14.0,
+    "resample-time" : 6,
+    "xyz0": [[0.5, 0.7], [-0.1, 0.1], [0.0, 0.4]],
 }
 
 class AnymalCEnv(DirectRLEnv):
@@ -54,25 +60,50 @@ class AnymalCEnv(DirectRLEnv):
         # Get specific body indices
         self._base_id, _ = self._contact_sensor.find_bodies("base")
         self._feet_ids, _ = self._contact_sensor.find_bodies(".*FOOT")
+        self._RF_FOOT_f, _ = self._contact_sensor.find_bodies("RF_FOOT")
+        self._LF_FOOT_f, _ = self._contact_sensor.find_bodies("LF_FOOT")
+
         self._undesired_contact_body_ids, _ = self._contact_sensor.find_bodies(".*THIGH")
         self._undesired_contact_body_shank_ids, _ = self._contact_sensor.find_bodies(".*SHANK")
 
         # find the right front foot transform in world frame(e.g.)
         self._RF_FOOT, _ = self._robot.find_bodies("RF_FOOT")
+        self._LF_FOOT, _ = self._robot.find_bodies("LF_FOOT")
         self._BASE, _ = self._robot.find_bodies("base")
         # init base frame origin (still confused about how to get this)
-        # self.root_position = self._robot.data.default_root_state
-        # self.root_position[:, :3] += self._terrain.env_origins
-        self.root_position = self._robot.data.body_pos_w[:, self._BASE[0], :3]
+        # self.root_position = self._robot.data.default_root_state[:, :3]
+        self.root_position = self._terrain.env_origins[:] # wtf += will affect the default_root_state , array shallow copy?
+        # self.root_position = self._robot.data.body_pos_w[:, self._BASE[0], :3]
+        # print("root_position : ", self.root_position)
 
         # for curriculum learning
-        self.x = [0.3, 0.5]
-        self.y = [-0.2, 0.0]
-        self.z = [0.1, 0.4]
+        self.x = [0.5, 0.7]
+        self.y = [-0.1, 0.1]
+        self.z = [0.0, 0.4]
         self.ex = 0.0
+        # for testing
+        # self.x = [1.0, 1.5]
+        # self.y = [-0.6, 0.0]
+        # self.z = [0.2, 0.6]
+
+        # for marker visualization
+        self.target = targetVis(scale=0.03, num_envs=self.num_envs)
 
         # for resampling target points
         self.resampled = torch.zeros(self.num_envs)
+        
+        # create a new xform prim for all objects to be spawned under
+        # prim_utils.create_prim("/World/Objects", "Xform") 
+        # cfg_sphere_rigid = sim_utils.SphereCfg(
+        #     radius=0.15,
+        #     rigid_props=sim_utils.RigidBodyPropertiesCfg(),
+        #     mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
+        #     collision_props=sim_utils.CollisionPropertiesCfg(),
+        #     visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
+        # )
+        # cfg_sphere_rigid.func(
+        #     "/World/Objects/SphereRigid", cfg_sphere_rigid, translation=(-0.2, 0.0, 2.0), orientation=(0.5, 0.0, 0.5, 0.0)
+        # )
 
         # wandb logging
         run = wandb.init(
@@ -112,7 +143,7 @@ class AnymalCEnv(DirectRLEnv):
         self._previous_actions = self._actions.clone()
         # print("root_pos_world : ", self.root_position)
         # print("base_pos_world : ", self._robot.data.body_pos_w[:, self._BASE[0], :3])
-        base_pos_root = self._robot.data.body_pos_w[:, self._BASE[0], :3] - self.root_position[:, :3]
+        # base_pos_root = self._robot.data.body_pos_w[:, self._BASE[0], :3] - self.root_position[:, :3]
         # print("base_pos_root : ", base_pos_root)
         
         # print("root_position : ", self._robot.data.root_pos_w[:, :3])
@@ -151,9 +182,10 @@ class AnymalCEnv(DirectRLEnv):
 
     def _get_rewards(self) -> torch.Tensor:
         # resample the target point every half episode
-        resampled_ids_cand = torch.where(self.episode_length_buf >= self.max_episode_length/2, 1.0, 0).nonzero().squeeze()
+        resampled_ids_cand = torch.where(self.episode_length_buf >= self.max_episode_length/2, 1.0, 0).nonzero()
         # print("resampled_ids : ", resampled_ids)
         resampled_ids = []
+        
         for i in resampled_ids_cand:
             if self.resampled[i.item()] == 0:
                 self.resampled[i.item()] = 1
@@ -162,10 +194,10 @@ class AnymalCEnv(DirectRLEnv):
         if len(resampled_ids) > 0:
             resampled_ids = torch.tensor(resampled_ids, device=self.device)
             x = np.random.uniform(self.x[0], self.x[1]+self.ex)
-            y = np.random.uniform(self.y[0]-self.ex, self.y[1])
-            z = np.random.uniform(self.z[0], self.z[1])
+            y = np.random.uniform(self.y[0]-self.ex, self.y[1]+self.ex)
+            z = np.random.uniform(self.z[0], self.z[1]+self.ex)
             self._commands[resampled_ids] = torch.tensor([x, y, z], device=self.device)
-            # self.target = targetVis(self._commands[resampled_ids], self.root_position[resampled_ids], scale=0.03, num_envs=self.num_envs)
+            # self.target.set_marker_position(self._commands, self.root_position)
             # self.target.visualize()
         
         ### Re ###
@@ -178,9 +210,11 @@ class AnymalCEnv(DirectRLEnv):
         # foot_pos_deviation = torch.norm((RF_FOOT_pos_base-self._commands_base[:, :3]), dim=1)
         
         #### in root frame ####
+        # print("RF_FOOT : ", self._RF_FOOT)
         RF_FOOT_pos_root = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self.root_position[:, :3]
         foot_pos_deviation = torch.norm((RF_FOOT_pos_root-self._commands[:, :3]), dim=1)
-        
+        # print("foot_pos_deviation : ", foot_pos_deviation)
+        # print("RF_FOOT_pos_root : ", RF_FOOT_pos_root)
         ### Rn ###
         # joint velocity(w2)
         joint_vel = torch.sum(torch.square(self._robot.data.joint_vel), dim=1)
@@ -192,7 +226,10 @@ class AnymalCEnv(DirectRLEnv):
         action_rate = torch.sum(torch.square(self._actions - self._previous_actions), dim=1)
         # nc - number of collisions(w6)
         net_contact_forces = self._contact_sensor.data.net_forces_w_history
-        
+        contacts_forces = self._contact_sensor.data.net_forces_w
+        # print("RF force : ", contacts_forces[:, self._RF_FOOT_f[0]]) 
+        # print("LF force : ", contacts_forces[:, self._LF_FOOT_f[0]]) 
+
         is_contact = (
             torch.max(torch.norm(net_contact_forces[:, :, self._undesired_contact_body_ids], dim=-1), dim=1)[0] > 1.0
         )
@@ -240,16 +277,15 @@ class AnymalCEnv(DirectRLEnv):
         # Sample new commands
         # first curriculum
         x = np.random.uniform(self.x[0], self.x[1]+self.ex)
-        y = np.random.uniform(self.y[0]-self.ex, self.y[1])
-        z = np.random.uniform(self.z[0], self.z[1])
-        # second curriculum
-        # self.x = np.random.uniform(0.2, 0.6)
-        # self.y = np.random.uniform(-0.3, 0.1)
-        # self.z = np.random.uniform(0.0, 0.5)
+        y = np.random.uniform(self.y[0]-self.ex, self.y[1]+self.ex)
+        z = np.random.uniform(self.z[0], self.z[1]+ self.ex)
 
         # self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(0.3, 0.6)
         self._commands[env_ids] = torch.tensor([x, y, z], device=self.device)
         # target visualization
+        # self.target.set_marker_position(self._commands, self.root_position)
+        # self.target.visualize()
+
         # self.target = targetVis(self._commands[env_ids], self.root_position[env_ids],scale=0.03, num_envs=self.num_envs)
         # self.target.visualize()
 
@@ -257,12 +293,14 @@ class AnymalCEnv(DirectRLEnv):
         joint_pos = self._robot.data.default_joint_pos[env_ids]
         joint_vel = self._robot.data.default_joint_vel[env_ids]
         default_root_state = self._robot.data.default_root_state[env_ids]
+        # print("default_root_state : ", default_root_state[:, :3])
         default_root_state[:, :3] += self._terrain.env_origins[env_ids]
         self._robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
         self._robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
         # Reset base frame origin
-        self.root_position = self._robot.data.body_pos_w[:, self._BASE[0], :3]
+        # self.root_position = self._robot.data.body_pos_w[:, self._BASE[0], :3] # wrong for initialize every time
+
         # Logging
         extras = dict()
         for key in self._episode_sums.keys():
@@ -273,9 +311,10 @@ class AnymalCEnv(DirectRLEnv):
         self.extras["log"].update(extras)
         
         # curriculm learning
-        if extras["Episode_Reward/Re"] > 13.5:
-            if self.ex < 1.4:
-                self.ex += 0.2
+        if extras["Episode_Reward/Re"] > 14.0:
+            if self.ex < 0.8:
+                self.ex += 0.1
+        # print("curriculum : ", self.ex)
 
         extras = dict()
         extras["Episode_Termination/base_contact"] = torch.count_nonzero(self.reset_terminated[env_ids]).item()
