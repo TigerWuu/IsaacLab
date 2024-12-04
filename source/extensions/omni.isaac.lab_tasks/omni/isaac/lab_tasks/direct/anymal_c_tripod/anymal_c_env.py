@@ -23,10 +23,10 @@ from .targetVisualization import targetVisualization as targetVis
 import wandb
 
 my_config = {
-    "run_id": "Quadruped_tripod_root_curri-01-xyz_resampeld-6s_Re-14_mod-r-f-4-continue",
-    "epoch_num": 4000,
-    "description": "8000 to 12000 epochs, command curriculum in x and y axis, resampled every 6s, change root frame position to (x,y,z), maybe 0.7 is too hight for it at the beginning",
-    "ex-max" : 0.8,
+    "run_id": "Quadruped_tripod_root_curri-01-xy_resampeld-6s_Re-14_mod-r-f-friction-10_conti-w6--0.5",
+    "epoch_num": 8000,
+    "description": "8000 to 16000 epochs, command curriculum in x and y axis, resampled every 6s, change root frame position to (x,y,z), maybe 0.7 is too hight for it at the beginning",
+    "ex-max" : 0.7,
     "ex-step" : 0.1,
     "ex-threshold" : 14.0,
     "resample-time" : 6,
@@ -81,10 +81,6 @@ class AnymalCEnv(DirectRLEnv):
         self.y = [-0.1, 0.1]
         self.z = [0.0, 0.4]
         self.ex = 0.0
-        # for testing
-        # self.x = [1.0, 1.5]
-        # self.y = [-0.6, 0.0]
-        # self.z = [0.2, 0.6]
 
         # for marker visualization
         self.target = targetVis(scale=0.03, num_envs=self.num_envs)
@@ -193,9 +189,9 @@ class AnymalCEnv(DirectRLEnv):
         
         if len(resampled_ids) > 0:
             resampled_ids = torch.tensor(resampled_ids, device=self.device)
-            x = np.random.uniform(self.x[0], self.x[1]+self.ex)
+            x = np.random.uniform(self.x[0], self.x[1]+2*self.ex)
             y = np.random.uniform(self.y[0]-self.ex, self.y[1]+self.ex)
-            z = np.random.uniform(self.z[0], self.z[1]+self.ex)
+            z = np.random.uniform(self.z[0], self.z[1])
             self._commands[resampled_ids] = torch.tensor([x, y, z], device=self.device)
             # self.target.set_marker_position(self._commands, self.root_position)
             # self.target.visualize()
@@ -276,9 +272,9 @@ class AnymalCEnv(DirectRLEnv):
         self._previous_actions[env_ids] = 0.0
         # Sample new commands
         # first curriculum
-        x = np.random.uniform(self.x[0], self.x[1]+self.ex)
+        x = np.random.uniform(self.x[0], self.x[1]+2*self.ex)
         y = np.random.uniform(self.y[0]-self.ex, self.y[1]+self.ex)
-        z = np.random.uniform(self.z[0], self.z[1]+ self.ex)
+        z = np.random.uniform(self.z[0], self.z[1])
 
         # self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(0.3, 0.6)
         self._commands[env_ids] = torch.tensor([x, y, z], device=self.device)
@@ -312,7 +308,7 @@ class AnymalCEnv(DirectRLEnv):
         
         # curriculm learning
         if extras["Episode_Reward/Re"] > 14.0:
-            if self.ex < 0.8:
+            if self.ex < 0.7:
                 self.ex += 0.1
         # print("curriculum : ", self.ex)
 
