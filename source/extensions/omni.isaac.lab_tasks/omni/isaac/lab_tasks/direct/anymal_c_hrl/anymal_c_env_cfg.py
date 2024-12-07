@@ -21,6 +21,9 @@ from omni.isaac.lab.utils import configclass
 from omni.isaac.lab_assets.anymal import ANYMAL_C_CFG  # isort: skip
 from omni.isaac.lab.terrains.config.rough import ROUGH_TERRAINS_CFG, TRIPOD_ROUGH_TERRAINS_CFG  # isort: skip
 
+### add
+from gymnasium.spaces import Discrete
+###
 
 @configclass
 class EventCfg:
@@ -54,8 +57,11 @@ class AnymalCFlatEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 12.0
     decimation = 4
-    action_scale = 0.5
-    action_space = 12
+    # action_scale = 0.5
+    # action_space = 4 
+    ### add
+    action_space = Discrete(4)
+    ###
     observation_space = 48
     state_space = 0
 

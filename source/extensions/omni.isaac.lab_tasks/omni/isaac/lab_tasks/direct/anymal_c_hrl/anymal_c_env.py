@@ -20,6 +20,23 @@ from .targetVisualization import targetVisualization as targetVis
 # visualize taining
 import wandb
 
+### add
+import pickle
+import os
+import cli_args
+from omni.isaac.lab_tasks.utils import get_checkpoint_path
+from omni.isaac.lab_tasks.utils.hydra import hydra_task_config
+from rsl_rl.runners import OnPolicyRunner
+from omni.isaac.lab_tasks.utils.wrappers.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
+from omni.isaac.lab.envs import (
+    DirectMARLEnv,
+    DirectMARLEnvCfg,
+    DirectRLEnvCfg,
+    ManagerBasedRLEnvCfg,
+    multi_agent_to_single_agent,
+)
+###
+
 my_config = {
     "run_id": "Quadruped_tripod_root_curriculum-02_resampeld-6s",
     "epoch_num":8000,
@@ -34,7 +51,11 @@ class AnymalCEnv(DirectRLEnv):
         super().__init__(cfg, render_mode, **kwargs)
 
         # Joint position command (deviation from default joint positions)
-        self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
+        # self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
+        ### add
+        # 改為discrete動作空間
+        self.action_space = gym.spaces.Discrete(4)
+        ###
         self._previous_actions = torch.zeros(
             self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device
         )
@@ -74,12 +95,76 @@ class AnymalCEnv(DirectRLEnv):
         # for resampling target points
         self.resampled = torch.zeros(self.num_envs)
 
+        ### add for hrl
+        self.get_low_level_policy()
+        ###
+
         # wandb logging
         run = wandb.init(
             project="RL_Final",
             config=my_config,
             id=my_config["run_id"]
         )
+    ### add
+    @hydra_task_config("Isaac-Velocity-Flat-Anymal-C-Direct-hrl-low", "rsl_rl_cfg_entry_point")
+    def get_low_level_policy(self, env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
+        ## need change 
+        import argparse
+        args_cli = argparse.Namespace()
+        # args_cli.video = True
+        # args_cli.video_length = 200
+        # args_cli.video_interval = 2000
+        args_cli.num_envs = 4096
+        args_cli.task = "Isaac-Velocity-Flat-Anymal-C-Direct-hrl-low"
+        args_cli.seed = 42
+        args_cli.max_iterations = 500
+        args_cli.device = "cuda"
+
+        # override configurations with non-hydra CLI arguments
+
+        agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
+        env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
+        agent_cfg.max_iterations = (
+            args_cli.max_iterations if args_cli.max_iterations is not None else agent_cfg.max_iterations
+        )
+        
+        # create isaac environment
+        # self.env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+        
+        log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
+        log_root_path = os.path.abspath(log_root_path)
+    
+        resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+        ### multi-path
+        resume_paths = []
+        for i in range(4):
+            low_policy = get_checkpoint_path(log_root_path, agent_cfg.load_run[i], agent_cfg.load_checkpoint[i])
+            resume_paths.append(low_policy)
+        ###
+
+        # wrap around environment for rsl-rl
+        self.env = RslRlVecEnvWrapper(self.env)
+
+        # create runner from rsl-rl
+        runner = OnPolicyRunner(agent_cfg.to_dict(), device=agent_cfg.device)
+        # write git state to logs
+        runner.add_git_repo_to_log(__file__)
+        
+        ### multi-path
+        low_level_policies = []
+        for i in range(4):
+            runner.load(resume_paths[i])
+            runner.eval_mode()
+            policy = runner.get_inference_policy()
+            self.low_level_policies.append(policy)
+            # obs, extras = self.env.get_observations()
+            # action = low_level_policies[0](obs)
+            # obs, rewards, dones, infos = env.step(action)
+        ###
+
+        self.env.close()
+
+    ###
     
     def _setup_scene(self):
         self._robot = Articulation(self.cfg.robot)
@@ -102,7 +187,13 @@ class AnymalCEnv(DirectRLEnv):
 
 
     def _pre_physics_step(self, actions: torch.Tensor):
-        self._actions = actions.clone()
+        action_index = actions.item() # to get the action that this high level policy want to take
+        # obs, extras = self.env.get_observations()
+        obs_path = "/home/hyc/IsaacLab/saved_obs/env_state.pkl"
+        with open(obs_path, 'rb') as f:
+            obs = pickle.load(f)
+        low_level_action = self.low_level_policies[action_index](obs) # how to setup discrete action (might be direct_rl_env?)
+        self._actions = low_level_action.clone()
         self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
 
     def _apply_action(self):
@@ -140,7 +231,7 @@ class AnymalCEnv(DirectRLEnv):
                     self._robot.data.joint_pos,
                     self._robot.data.joint_vel,
                     # height_data,
-                    self._actions,
+                    # self._actions, ### add (delete)
                 )
                 if tensor is not None
             ],
@@ -180,6 +271,9 @@ class AnymalCEnv(DirectRLEnv):
         #### in root frame ####
         RF_FOOT_pos_root = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self.root_position[:, :3]
         foot_pos_deviation = torch.norm((RF_FOOT_pos_root-self._commands[:, :3]), dim=1)
+
+        ### mass deviation (dont know the function)
+        mass_deviation = torch.norm(self._robot.data.mass_center_w[:, :3] - self._commands[:, :3], dim=1)
         
         ### Rn ###
         # joint velocity(w2)
@@ -211,6 +305,12 @@ class AnymalCEnv(DirectRLEnv):
             "Re": self.cfg.w1* torch.exp(-(foot_pos_deviation/self.cfg.sigma))* self.step_dt,
             "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt, 
         }
+        ### for high level policy
+        # rewards = {
+        #     "Rm": self.cfg.w1* torch.exp(-(mass_deviation/self.cfg.sigma))* self.step_dt,
+        #     "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt, 
+        # }
+        ###
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
         # Logging
         for key, value in rewards.items():
@@ -235,7 +335,10 @@ class AnymalCEnv(DirectRLEnv):
         if len(env_ids) == self.num_envs:
             # Spread out the resets to avoid spikes in training when many environments reset at a similar time
             self.episode_length_buf[:] = torch.randint_like(self.episode_length_buf, high=int(self.max_episode_length))
-        self._actions[env_ids] = 0.0
+        ### add
+        # self._actions[env_ids] = 0.0
+        self._actions[env_ids] = 0
+        ###
         self._previous_actions[env_ids] = 0.0
         # Sample new commands
         # first curriculum
