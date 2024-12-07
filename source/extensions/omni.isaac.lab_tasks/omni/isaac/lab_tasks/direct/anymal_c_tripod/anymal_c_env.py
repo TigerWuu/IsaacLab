@@ -8,6 +8,9 @@ from __future__ import annotations
 import gymnasium as gym
 import torch
 import numpy as np
+# import python queue
+from collections import deque
+import queue
 
 import omni.isaac.core.utils.prims as prim_utils
 
@@ -23,14 +26,14 @@ from .targetVisualization import targetVisualization as targetVis
 import wandb
 
 my_config = {
-    "run_id": "Quadruped_tripod_root_curri-01-xy_resampeld-6s_Re-14_mod-r-f-friction-10_conti-w6--0.5",
+    "run_id": "Quadruped_tripod_curri-01-xyz_AvgRe-13_frame-root_friction-1-my-box_buffer-1000",
     "epoch_num": 8000,
-    "description": "8000 to 16000 epochs, command curriculum in x and y axis, resampled every 6s, change root frame position to (x,y,z), maybe 0.7 is too hight for it at the beginning",
+    "description": "0 to 8000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
     "ex-max" : 0.7,
     "ex-step" : 0.1,
-    "ex-threshold" : 14.0,
+    "ex-threshold" : 13,
     "resample-time" : 6,
-    "xyz0": [[0.5, 0.7], [-0.1, 0.1], [0.0, 0.4]],
+    "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 0.4]],
 }
 
 class AnymalCEnv(DirectRLEnv):
@@ -76,11 +79,18 @@ class AnymalCEnv(DirectRLEnv):
         # self.root_position = self._robot.data.body_pos_w[:, self._BASE[0], :3]
         # print("root_position : ", self.root_position)
 
-        # for curriculum learning
-        self.x = [0.5, 0.7]
-        self.y = [-0.1, 0.1]
+        # (tiger) for curriculum learning
+        self.x = [0.6, 0.8]
+        self.y = [-0.2, 0.2]
         self.z = [0.0, 0.4]
         self.ex = 0.0
+        
+        # (chang)for curriculum learning
+        # self.x = [0.6, 0.8]
+        # self.y = [-0.2, 0.2]
+        # self.z = [0.4, 1.1]
+        # self.ex = 0.0
+
 
         # for marker visualization
         self.target = targetVis(scale=0.03, num_envs=self.num_envs)
@@ -88,6 +98,10 @@ class AnymalCEnv(DirectRLEnv):
         # for resampling target points
         self.resampled = torch.zeros(self.num_envs)
         
+        # create a queue with buffer size 100
+        self.buffer_size = 1000
+        self.reward_buffer = deque(maxlen=self.buffer_size)
+
         # create a new xform prim for all objects to be spawned under
         # prim_utils.create_prim("/World/Objects", "Xform") 
         # cfg_sphere_rigid = sim_utils.SphereCfg(
@@ -177,24 +191,27 @@ class AnymalCEnv(DirectRLEnv):
         return observations
 
     def _get_rewards(self) -> torch.Tensor:
-        # resample the target point every half episode
-        resampled_ids_cand = torch.where(self.episode_length_buf >= self.max_episode_length/2, 1.0, 0).nonzero()
-        # print("resampled_ids : ", resampled_ids)
-        resampled_ids = []
+        # # resample the target point every half episode
+        # resampled_ids_cand = torch.where(self.episode_length_buf >= self.max_episode_length/2, 1.0, 0).nonzero()
+        # # print("resampled_ids : ", resampled_ids)
+        # resampled_ids = []
         
-        for i in resampled_ids_cand:
-            if self.resampled[i.item()] == 0:
-                self.resampled[i.item()] = 1
-                resampled_ids.append(i.item())
+        # for i in resampled_ids_cand:
+        #     if self.resampled[i.item()] == 0:
+        #         self.resampled[i.item()] = 1
+        #         resampled_ids.append(i.item())
         
-        if len(resampled_ids) > 0:
-            resampled_ids = torch.tensor(resampled_ids, device=self.device)
-            x = np.random.uniform(self.x[0], self.x[1]+2*self.ex)
-            y = np.random.uniform(self.y[0]-self.ex, self.y[1]+self.ex)
-            z = np.random.uniform(self.z[0], self.z[1])
-            self._commands[resampled_ids] = torch.tensor([x, y, z], device=self.device)
-            # self.target.set_marker_position(self._commands, self.root_position)
-            # self.target.visualize()
+        # if len(resampled_ids) > 0:
+        #     resampled_ids = torch.tensor(resampled_ids, device=self.device)
+        #     x = np.random.uniform(self.x[0], self.x[1]+2*self.ex)
+        #     y = np.random.uniform(self.y[0]-self.ex, self.y[1]+self.ex)
+        #     if self.z[1]<1.1:
+        #         z = np.random.uniform(self.z[0], self.z[1]+2*self.ex)
+        #     else:
+        #         z = np.random.uniform(self.z[0], self.z[1])
+        #     self._commands[resampled_ids] = torch.tensor([x, y, z], device=self.device)
+        #     # self.target.set_marker_position(self._commands, self.root_position)
+        #     # self.target.visualize()
         
         ### Re ###
         # foot position(w1)
@@ -258,8 +275,9 @@ class AnymalCEnv(DirectRLEnv):
         return died, time_out
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
-        for i in env_ids:
-            self.resampled[i.item()] = 0
+        # # for resampling target points
+        # for i in env_ids:
+        #     self.resampled[i.item()] = 0
 
         if env_ids is None or len(env_ids) == self.num_envs:
             env_ids = self._robot._ALL_INDICES
@@ -274,7 +292,10 @@ class AnymalCEnv(DirectRLEnv):
         # first curriculum
         x = np.random.uniform(self.x[0], self.x[1]+2*self.ex)
         y = np.random.uniform(self.y[0]-self.ex, self.y[1]+self.ex)
-        z = np.random.uniform(self.z[0], self.z[1])
+        if self.z[1]<1.1:
+            z = np.random.uniform(self.z[0], self.z[1]+2*self.ex)
+        else:
+            z = np.random.uniform(self.z[0], self.z[1])
 
         # self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(0.3, 0.6)
         self._commands[env_ids] = torch.tensor([x, y, z], device=self.device)
@@ -307,10 +328,23 @@ class AnymalCEnv(DirectRLEnv):
         self.extras["log"].update(extras)
         
         # curriculm learning
-        if extras["Episode_Reward/Re"] > 14.0:
-            if self.ex < 0.7:
-                self.ex += 0.1
-        # print("curriculum : ", self.ex)
+        # put the reward into the queue
+        self.reward_buffer.append(extras["Episode_Reward/Re"])
+        # if the queue is full
+        if len(self.reward_buffer) == self.buffer_size:
+            # get the average reward
+            avg_reward = sum(self.reward_buffer)/self.buffer_size
+            # if the average reward is larger than the threshold, increase the curriculum
+            if avg_reward.item() > my_config["ex-threshold"]:   # distance < 0.08
+                if self.ex < my_config["ex-max"]:
+                    self.ex += my_config["ex-step"]
+                    self.reward_buffer.clear()  
+        else:
+            avg_reward = torch.tensor(0.0, device=self.device)
+        
+        # if extras["Episode_Reward/Re"] > 14.0:
+        #     if self.ex < 0.5:
+        #         self.ex += 0.1
 
         extras = dict()
         extras["Episode_Termination/base_contact"] = torch.count_nonzero(self.reset_terminated[env_ids]).item()
@@ -318,4 +352,5 @@ class AnymalCEnv(DirectRLEnv):
         self.extras["log"].update(extras)
         # wandb logging
         wandb.log(self.extras["log"]) 
+        wandb.log({"avg_reward_100": avg_reward.item()})
         wandb.log({"curriculum": self.ex})

@@ -79,8 +79,8 @@ class AnymalCFlatEnvCfg(DirectRLEnvCfg):
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",
-            static_friction=10.0,
-            dynamic_friction=10.0,
+            static_friction=1.0,
+            dynamic_friction=1.0,
             restitution=0.0,
         ),
         debug_vis=False,
@@ -117,7 +117,7 @@ class AnymalCFlatEnvCfg(DirectRLEnvCfg):
     w3 = -5e-6
     w4 = -2e-5
     w5 = -1e-2
-    w6 = -0.5
+    w6 = -2
     w7 = -80
 
 
