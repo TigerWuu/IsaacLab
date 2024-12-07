@@ -21,9 +21,20 @@ from .targetVisualization import targetVisualization as targetVis
 import wandb
 
 ### add
-import pickle 
-import torch
-from .on_policy_class import OnPolicyRunner_no_env
+import pickle
+import os
+import cli_args
+from omni.isaac.lab_tasks.utils import get_checkpoint_path
+from omni.isaac.lab_tasks.utils.hydra import hydra_task_config
+from rsl_rl.runners import OnPolicyRunner
+from omni.isaac.lab_tasks.utils.wrappers.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
+from omni.isaac.lab.envs import (
+    DirectMARLEnv,
+    DirectMARLEnvCfg,
+    DirectRLEnvCfg,
+    ManagerBasedRLEnvCfg,
+    multi_agent_to_single_agent,
+)
 ###
 
 my_config = {
@@ -40,15 +51,10 @@ class AnymalCEnv(DirectRLEnv):
         super().__init__(cfg, render_mode, **kwargs)
 
         # Joint position command (deviation from default joint positions)
-        ### add
-        # 改為discrete動作空間
-        # ex: action = tensor([1, 0, 1, 2, 3])
-        self._actions = torch.randint(0, 3, (self.num_envs,), device=self.device, dtype=torch.long)
-        self._previous_actions = torch.randint(0, 3, (self.num_envs,), device=self.device, dtype=torch.long)
-        # self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
-        # self._previous_actions = torch.zeros(
-        #     self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device
-        # )
+        self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
+        self._previous_actions = torch.zeros(
+            self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device
+        )
 
         # x,y,z target points in root frame
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
@@ -86,7 +92,7 @@ class AnymalCEnv(DirectRLEnv):
         self.resampled = torch.zeros(self.num_envs)
 
         ### add for hrl
-        self.load_low_level_policy()
+        self.get_low_level_policy()
         ###
 
         # wandb logging
@@ -96,14 +102,64 @@ class AnymalCEnv(DirectRLEnv):
             id=my_config["run_id"]
         )
     ### add
-    def load_low_level_policy(self):
-        index = [7999, 7999, 7999, 7999]
-        self.low_level_policies = []
+    @hydra_task_config("Isaac-Velocity-Flat-Anymal-C-Direct-hrl-low", "rsl_rl_cfg_entry_point")
+    def get_low_level_policy(self, env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
+        ## need change 
+        import argparse
+        args_cli = argparse.Namespace()
+        # args_cli.video = True
+        # args_cli.video_length = 200
+        # args_cli.video_interval = 2000
+        args_cli.num_envs = 4096
+        args_cli.task = "Isaac-Velocity-Flat-Anymal-C-Direct-hrl-low"
+        args_cli.seed = 42
+        args_cli.max_iterations = 500
+        args_cli.device = "cuda"
+
+        # override configurations with non-hydra CLI arguments
+
+        agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
+        env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
+        agent_cfg.max_iterations = (
+            args_cli.max_iterations if args_cli.max_iterations is not None else agent_cfg.max_iterations
+        )
+        
+        # create isaac environment
+        # self.env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+        
+        log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
+        log_root_path = os.path.abspath(log_root_path)
+    
+        resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+        ### multi-path
+        resume_paths = []
         for i in range(4):
-            model = OnPolicyRunner_no_env()
-            model.load(f"/home/hyc/IsaacLab/saved_obs/model_{index[i]}.pt")
-            policy = model.get_inference_policy()
+            low_policy = get_checkpoint_path(log_root_path, agent_cfg.load_run[i], agent_cfg.load_checkpoint[i])
+            resume_paths.append(low_policy)
+        ###
+
+        # wrap around environment for rsl-rl
+        self.env = RslRlVecEnvWrapper(self.env)
+
+        # create runner from rsl-rl
+        runner = OnPolicyRunner(agent_cfg.to_dict(), device=agent_cfg.device)
+        # write git state to logs
+        runner.add_git_repo_to_log(__file__)
+        
+        ### multi-path
+        low_level_policies = []
+        for i in range(4):
+            runner.load(resume_paths[i])
+            runner.eval_mode()
+            policy = runner.get_inference_policy()
             self.low_level_policies.append(policy)
+            # obs, extras = self.env.get_observations()
+            # action = low_level_policies[0](obs)
+            # obs, rewards, dones, infos = env.step(action)
+        ###
+
+        self.env.close()
+
     ###
     
     def _setup_scene(self):
@@ -127,27 +183,14 @@ class AnymalCEnv(DirectRLEnv):
 
 
     def _pre_physics_step(self, actions: torch.Tensor):
-    # def _pre_physics_step(self, actions: int):
-        self._actions = actions.clone()
-        ## change to a fixed file name
-        # load observation
-        obs_path = "/home/hyc/IsaacLab/saved_obs/env_state_step_23.pkl"
+        action_index = actions.item() # to get the action that this high level policy want to take
+        # obs, extras = self.env.get_observations()
+        obs_path = "/home/hyc/IsaacLab/saved_obs/env_state.pkl"
         with open(obs_path, 'rb') as f:
             obs = pickle.load(f)
-            obs = torch.tensor(obs)
-
-        # get action
-        ## how to setup discrete action (might be direct_rl_env?)
-        low_level_actions = []
-        print("actions-----------------------------", self._actions)
-        for i in range(self.num_envs):
-            print("action-----------------------------", self._actions[i])
-            foot_index = self._actions[i].item()
-            low_level_actions.append(self.low_level_policies[foot_index](obs)) 
-
-        self._processed_actions = low_level_actions
-
-        # self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
+        low_level_action = self.low_level_policies[action_index](obs) # how to setup discrete action (might be direct_rl_env?)
+        self._actions = low_level_action.clone()
+        self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
 
     def _apply_action(self):
         self._robot.set_joint_position_target(self._processed_actions)
@@ -184,7 +227,7 @@ class AnymalCEnv(DirectRLEnv):
                     self._robot.data.joint_pos,
                     self._robot.data.joint_vel,
                     # height_data,
-                    # self._actions, ### add (delete)
+                    self._actions,
                 )
                 if tensor is not None
             ],
@@ -288,12 +331,8 @@ class AnymalCEnv(DirectRLEnv):
         if len(env_ids) == self.num_envs:
             # Spread out the resets to avoid spikes in training when many environments reset at a similar time
             self.episode_length_buf[:] = torch.randint_like(self.episode_length_buf, high=int(self.max_episode_length))
-        ### add
-        # self._actions[env_ids] = 0.0
-        # self._previous_actions[env_ids] = 0.0
-        self._actions[env_ids] = 0
-        self._previous_actions[env_ids] = 0
-        ###
+        self._actions[env_ids] = 0.0
+        self._previous_actions[env_ids] = 0.0
         # Sample new commands
         # first curriculum
         x = np.random.uniform(self.x[0], self.x[1]+self.ex)

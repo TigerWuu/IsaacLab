@@ -49,8 +49,8 @@ import os
 import torch
 from datetime import datetime
 
-from rsl_rl.runners import OnPolicyRunner
-# from on_policy_runner import *
+# from rsl_rl.runners import OnPolicyRunner 
+from on_policy_runner import * ### add
 
 from omni.isaac.lab.envs import (
     DirectMARLEnv,
