@@ -26,7 +26,9 @@ import os
 import cli_args
 from omni.isaac.lab_tasks.utils import get_checkpoint_path
 from omni.isaac.lab_tasks.utils.hydra import hydra_task_config
-from rsl_rl.runners import OnPolicyRunner
+# from rsl_rl.runners import OnPolicyRunner
+from .on_policy_runner import LoadPPOModel
+
 from omni.isaac.lab_tasks.utils.wrappers.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 from omni.isaac.lab.envs import (
     DirectMARLEnv,
@@ -35,7 +37,8 @@ from omni.isaac.lab.envs import (
     ManagerBasedRLEnvCfg,
     multi_agent_to_single_agent,
 )
-###
+### very ugly code..., cause I dont know how to use the decorator 
+from omni.isaac.lab_tasks.direct.anymal_c_hrl.agents.rsl_rl_ppo_cfg import AnymalCFlatPPORunnerCfg, AnymalCRoughPPORunnerCfg
 
 my_config = {
     "run_id": "Quadruped_tripod_root_curriculum-02_resampeld-6s",
@@ -49,13 +52,18 @@ class AnymalCEnv(DirectRLEnv):
 
     def __init__(self, cfg: AnymalCFlatEnvCfg | AnymalCRoughEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
-
+        # define low level action space 
+        self.low_level_actions = torch.zeros(self.num_envs, 12 , device=self.device)
+        self.low_level_processed_actions = torch.zeros(self.num_envs, 12 , device=self.device)
         # Joint position command (deviation from default joint positions)
         # self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
         ### add
         # 改為discrete動作空間
         self.action_space = gym.spaces.Discrete(4)
         ###
+        self._actions = torch.zeros(
+            self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device
+        )
         self._previous_actions = torch.zeros(
             self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device
         )
@@ -100,14 +108,14 @@ class AnymalCEnv(DirectRLEnv):
         ###
 
         # wandb logging
-        run = wandb.init(
-            project="RL_Final",
-            config=my_config,
-            id=my_config["run_id"]
-        )
+        # run = wandb.init(
+        #     project="RL_Final",
+        #     config=my_config,
+        #     id=my_config["run_id"]
+        # )
     ### add
-    @hydra_task_config("Isaac-Velocity-Flat-Anymal-C-Direct-hrl-low", "rsl_rl_cfg_entry_point")
-    def get_low_level_policy(self, env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
+    # @hydra_task_config("Isaac-Velocity-Flat-Anymal-C-Direct-hrl-v0", "rsl_rl_cfg_entry_point")
+    def get_low_level_policy(self, agent_cfg = AnymalCFlatPPORunnerCfg()):
         ## need change 
         import argparse
         args_cli = argparse.Namespace()
@@ -122,14 +130,10 @@ class AnymalCEnv(DirectRLEnv):
 
         # override configurations with non-hydra CLI arguments
 
-        agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
-        env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
+        # agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
         agent_cfg.max_iterations = (
             args_cli.max_iterations if args_cli.max_iterations is not None else agent_cfg.max_iterations
         )
-        
-        # create isaac environment
-        # self.env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
         
         log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
         log_root_path = os.path.abspath(log_root_path)
@@ -138,31 +142,22 @@ class AnymalCEnv(DirectRLEnv):
         ### multi-path
         resume_paths = []
         for i in range(4):
-            low_policy = get_checkpoint_path(log_root_path, agent_cfg.load_run[i], agent_cfg.load_checkpoint[i])
+            low_policy = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
             resume_paths.append(low_policy)
         ###
 
-        # wrap around environment for rsl-rl
-        self.env = RslRlVecEnvWrapper(self.env)
-
         # create runner from rsl-rl
-        runner = OnPolicyRunner(agent_cfg.to_dict(), device=agent_cfg.device)
-        # write git state to logs
-        runner.add_git_repo_to_log(__file__)
+        # runner = OnPolicyRunner(agent_cfg.to_dict(), device=agent_cfg.device)
+        runner = LoadPPOModel(agent_cfg.to_dict(), device=agent_cfg.device)
         
         ### multi-path
-        low_level_policies = []
+        self.low_level_policies = []
         for i in range(4):
             runner.load(resume_paths[i])
             runner.eval_mode()
             policy = runner.get_inference_policy()
             self.low_level_policies.append(policy)
-            # obs, extras = self.env.get_observations()
-            # action = low_level_policies[0](obs)
-            # obs, rewards, dones, infos = env.step(action)
         ###
-
-        self.env.close()
 
     ###
     
@@ -187,17 +182,22 @@ class AnymalCEnv(DirectRLEnv):
 
 
     def _pre_physics_step(self, actions: torch.Tensor):
-        action_index = actions.item() # to get the action that this high level policy want to take
-        # obs, extras = self.env.get_observations()
-        obs_path = "/home/hyc/IsaacLab/saved_obs/env_state.pkl"
-        with open(obs_path, 'rb') as f:
-            obs = pickle.load(f)
-        low_level_action = self.low_level_policies[action_index](obs) # how to setup discrete action (might be direct_rl_env?)
-        self._actions = low_level_action.clone()
-        self._processed_actions = self.cfg.action_scale * self._actions + self._robot.data.default_joint_pos
+        # print("observation : ", self.observations.shape)
+        for i in range(self.num_envs):
+            obs = self.observations["policy"][i]
+            action_index = torch.argmax(actions[i]).item()
+            # print("action_index : ", action_index)
+            low_level_action = self.low_level_policies[action_index](obs) 
+            self.low_level_actions[i] = low_level_action
+            # low_level_actions = torch.cat((low_level_actions, low_level_action), dim=0)
+
+        # low_level_action = self.low_level_policies[action_index](self.observations) # how to setup discrete action (might be direct_rl_env?)
+        # self._actions = self.low_level_actions.clone()
+
+        self.low_level_processed_actions = self.cfg.action_scale * self.low_level_actions + self._robot.data.default_joint_pos
 
     def _apply_action(self):
-        self._robot.set_joint_position_target(self._processed_actions)
+        self._robot.set_joint_position_target(self.low_level_processed_actions)
 
     def _get_observations(self) -> dict:
         self._previous_actions = self._actions.clone()
@@ -232,13 +232,14 @@ class AnymalCEnv(DirectRLEnv):
                     self._robot.data.joint_vel,
                     # height_data,
                     # self._actions, ### add (delete)
+                    self.low_level_actions,
                 )
                 if tensor is not None
             ],
             dim=-1,
         )
-        observations = {"policy": obs}
-        return observations
+        self.observations = {"policy": obs}
+        return self.observations
 
     def _get_rewards(self) -> torch.Tensor:
         # resample the target point every half episode
@@ -273,7 +274,7 @@ class AnymalCEnv(DirectRLEnv):
         foot_pos_deviation = torch.norm((RF_FOOT_pos_root-self._commands[:, :3]), dim=1)
 
         ### mass deviation (dont know the function)
-        mass_deviation = torch.norm(self._robot.data.mass_center_w[:, :3] - self._commands[:, :3], dim=1)
+        # mass_deviation = torch.norm(self._robot.data.mass_center_w[:, :3] - self._commands[:, :3], dim=1)
         
         ### Rn ###
         # joint velocity(w2)
@@ -385,5 +386,5 @@ class AnymalCEnv(DirectRLEnv):
         extras["Episode_Termination/time_out"] = torch.count_nonzero(self.reset_time_outs[env_ids]).item()
         self.extras["log"].update(extras)
         # wandb logging
-        wandb.log(self.extras["log"]) 
-        wandb.log({"curriculum": self.ex})
+        # wandb.log(self.extras["log"]) 
+        # wandb.log({"curriculum": self.ex})

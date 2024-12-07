@@ -57,7 +57,7 @@ class AnymalCFlatEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 12.0
     decimation = 4
-    # action_scale = 0.5
+    action_scale = 0.5
     # action_space = 4 
     ### add
     action_space = Discrete(4)
