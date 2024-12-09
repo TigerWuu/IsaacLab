@@ -26,7 +26,7 @@ from .targetVisualization import targetVisualization as targetVis
 import wandb
 
 my_config = {
-    "run_id": "Quadruped_tripod_curri-01-xyz_resampled-6s_AvgRe-13_frame-base_friction-1-paper-box_buffer-1000",
+    "run_id": "Quadruped_tripod_curri-01-xyz_resampled-6s_AvgRe-13_frame-base_friction-1-paper-box_buffer-1000_LF",
     "epoch_num": 12000,
     "description": "0 to 12000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
     "ex-max" : 0.7,
@@ -34,8 +34,8 @@ my_config = {
     "ex-threshold" : 13,
     "resample-time" : 6,
     # "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 0.4]],
-    "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 1.2]],
-    "ex": 0.4,
+    "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 1.2]], # paper box
+    "ex": 0.0,
 }
 
 class AnymalCEnv(DirectRLEnv):
@@ -208,8 +208,9 @@ class AnymalCEnv(DirectRLEnv):
         
 
         #### in base frame ####
-        RF_FOOT_pos_base = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self._robot.data.body_pos_w[:, self._BASE[0], :3]
-        foot_pos_deviation = torch.norm((RF_FOOT_pos_base-self._commands_base[:, :3]), dim=1)
+        # LF_FOOT or RF_FOOT
+        FOOT_pos_base = self._robot.data.body_pos_w[:, self._LF_FOOT[0], :3] - self._robot.data.body_pos_w[:, self._BASE[0], :3]
+        foot_pos_deviation = torch.norm((FOOT_pos_base-self._commands_base[:, :3]), dim=1)
       
         #### in root frame ####
         # RF_FOOT_pos_root = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self.root_position[:, :3]

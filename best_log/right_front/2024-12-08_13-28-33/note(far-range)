@@ -7,7 +7,7 @@
 # episodes : 0 - 12000 continues
 # remark 
   1. fixed floating base frame problem 
-  2. max z = 1.1
+  2. max z = 1.2
   3. in base frame can learn how to touch far range point, wtf why the root frame cannot
   
 original target range : 
