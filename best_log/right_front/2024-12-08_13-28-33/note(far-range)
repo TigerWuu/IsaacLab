@@ -1,0 +1,17 @@
+# quadruped tripod in base frame
+# command curriculum
+	# ex max : 0.7
+	# ex extend : 0.1
+	# Re threshold : 13.0 
+# resampled : 0s
+# episodes : 0 - 12000 continues
+# remark 
+  1. fixed floating base frame problem 
+  2. max z = 1.1
+  3. in base frame can learn how to touch far range point, wtf why the root frame cannot
+  
+original target range : 
+x : (0.6,0.8) 
+y : (-0.2,0.2)
+z : (0.0,0.4)
+

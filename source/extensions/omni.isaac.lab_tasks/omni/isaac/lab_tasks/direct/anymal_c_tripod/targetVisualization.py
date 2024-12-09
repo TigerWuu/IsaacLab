@@ -12,6 +12,7 @@ class targetVisualization:
         self.num_envs = num_envs
         self.target_pos_w = None
         self.target_rot_w =  self.get_marker_orientation()
+        self.indices = torch.zeros(num_envs)
         
         # self.indices = torch.arange(num_envs)
 
@@ -33,17 +34,21 @@ class targetVisualization:
             markers={
                 "sphere": sim_utils.SphereCfg(
                     radius=scale,
-                    mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
-                    rigid_props=sim_utils.RigidBodyPropertiesCfg(rigid_body_enabled=True),
-                    collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=True),
                     visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0)),
+                ),
+                "sphere": sim_utils.SphereCfg(
+                    radius=scale,
+                    visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
                 ),
             },
         )
         return VisualizationMarkers(marker_cfg)
-
-    def visualize(self):
-        self.markers.visualize(self.target_pos_w, self.target_rot_w, marker_indices = None)
+    def check_marker_touched(self, distance, threshold):
+        # check if the marker is touched
+        self.indices = torch.where(distance < threshold, 1.0, 0.0)
+            
+    def visualize(self, marker_indices = None):
+        self.markers.visualize(self.target_pos_w, self.target_rot_w, marker_indices = self.indices)
 
 # class targetVisualization:
 #     def __init__(self, target_pos_r, root_pos_w, scale=1.0, num_envs=1):
