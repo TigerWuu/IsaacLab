@@ -334,7 +334,7 @@ class AnymalCEnv(DirectRLEnv):
         elif self.action_index == 1:
             rewards = {
                 "Re": self.cfg.w1* torch.exp(-(LF_foot_pos_deviation/self.cfg.sigma))* self.step_dt,
-                "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step
+                "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt,
             }
         ### for high level policy
         # rewards = {
