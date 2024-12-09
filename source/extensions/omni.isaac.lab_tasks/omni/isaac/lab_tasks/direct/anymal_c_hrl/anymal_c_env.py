@@ -135,14 +135,18 @@ class AnymalCEnv(DirectRLEnv):
             args_cli.max_iterations if args_cli.max_iterations is not None else agent_cfg.max_iterations
         )
         
-        log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
-        log_root_path = os.path.abspath(log_root_path)
-    
-        resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+        # log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
+        # log_root_path = os.path.abspath(log_root_path)
+        log_root_path = os.path.join("best_log")
+        low_policy_name = ["rf_foot", "lf_foot", "rh_foot", "lh_foot"]
+        low_policy_paths = [] 
+        for i in range(len(low_policy_name)):
+            low_policy_paths.append(os.path.abspath(os.path.join(log_root_path, low_policy_name[i])))
+        
         ### multi-path
         resume_paths = []
-        for i in range(4):
-            low_policy = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+        for i in range(len(low_policy_paths)):
+            low_policy = get_checkpoint_path(low_policy_paths[i], agent_cfg.load_run, agent_cfg.load_checkpoint)
             resume_paths.append(low_policy)
         ###
 
