@@ -35,7 +35,7 @@ my_config = {
     "resample-time" : 6,
     # "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 0.4]],
     "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 1.2]],
-    "ex": 0.0,
+    "ex": 0.4,
 }
 
 class AnymalCEnv(DirectRLEnv):
@@ -217,7 +217,7 @@ class AnymalCEnv(DirectRLEnv):
 
         # target visualization
         self.target.set_marker_position(self._commands, self.root_position)
-        self.target.check_marker_touched(foot_pos_deviation, 0.08)
+        self.target.check_marker_touched(foot_pos_deviation, 0.06)
         self.target.visualize()
         
         # print("foot_pos_deviation : ", foot_pos_deviation)
@@ -296,6 +296,7 @@ class AnymalCEnv(DirectRLEnv):
         self._commands[env_ids] = torch.tensor([x, y, z], device=self.device)
         # target visualization
         self.target.set_marker_position(self._commands, self.root_position)
+        self.target.reset_indices(env_ids)
         self.target.visualize()
 
         # self.target = targetVis(self._commands[env_ids], self.root_position[env_ids],scale=0.03, num_envs=self.num_envs)
@@ -337,10 +338,6 @@ class AnymalCEnv(DirectRLEnv):
         else:
             avg_reward = torch.tensor(0.0, device=self.device)
         
-        # if extras["Episode_Reward/Re"] > 14.0:
-        #     if self.ex < 0.5:
-        #         self.ex += 0.1
-
         extras = dict()
         extras["Episode_Termination/base_contact"] = torch.count_nonzero(self.reset_terminated[env_ids]).item()
         extras["Episode_Termination/time_out"] = torch.count_nonzero(self.reset_time_outs[env_ids]).item()
