@@ -60,7 +60,7 @@ class AnymalCFlatEnvCfg(DirectRLEnvCfg):
     action_scale = 0.5
     # action_space = 4 
     ### add
-    action_space = Discrete(4)
+    action_space = Discrete(2) ### 2o4
     ###
     observation_space = 48
     state_space = 0

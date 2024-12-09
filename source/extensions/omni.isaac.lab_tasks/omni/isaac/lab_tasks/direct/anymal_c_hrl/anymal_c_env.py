@@ -59,7 +59,7 @@ class AnymalCEnv(DirectRLEnv):
         # self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
         ### add
         # 改為discrete動作空間
-        self.action_space = gym.spaces.Discrete(4)
+        self.action_space = gym.spaces.Discrete(2) ### 2o4
         ###
         self._actions = torch.zeros(
             self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device
@@ -89,6 +89,7 @@ class AnymalCEnv(DirectRLEnv):
         # find the right front foot transform in world frame(e.g.)
         self._RF_FOOT, _ = self._robot.find_bodies("RF_FOOT")
         self._BASE, _ = self._robot.find_bodies("base")
+        self._LF_FOOT, _ = self._robot.find_bodies("LF_FOOT")
         # init base frame origin (still confused about how to get this)
         # self.root_position = self._robot.data.default_root_state
         # self.root_position[:, :3] += self._terrain.env_origins
@@ -138,13 +139,14 @@ class AnymalCEnv(DirectRLEnv):
         log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
         log_root_path = os.path.abspath(log_root_path)
     
-        resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+        # resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
         ### multi-path
-        resume_paths = []
-        for i in range(4):
-            low_policy = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
-            resume_paths.append(low_policy)
+        # resume_paths = []
+        # for i in range(4):
+        #     low_policy = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+        #     resume_paths.append(low_policy)
         ###
+        resume_paths = ["/home/hyc/IsaacLab/saved_obs/model_7999.pt","/home/hyc/IsaacLab/saved_obs/model_7999.pt"]
 
         # create runner from rsl-rl
         # runner = OnPolicyRunner(agent_cfg.to_dict(), device=agent_cfg.device)
@@ -152,7 +154,7 @@ class AnymalCEnv(DirectRLEnv):
         
         ### multi-path
         self.low_level_policies = []
-        for i in range(4):
+        for i in range(2): ### 2o4
             runner.load(resume_paths[i])
             runner.eval_mode()
             policy = runner.get_inference_policy()
@@ -185,9 +187,9 @@ class AnymalCEnv(DirectRLEnv):
         # print("observation : ", self.observations.shape)
         for i in range(self.num_envs):
             obs = self.observations["policy"][i]
-            action_index = torch.argmax(actions[i]).item()
+            self.action_index = torch.argmax(actions[i]).item()
             # print("action_index : ", action_index)
-            low_level_action = self.low_level_policies[action_index](obs) 
+            low_level_action = self.low_level_policies[self.action_index](obs) 
             self.low_level_actions[i] = low_level_action
             # low_level_actions = torch.cat((low_level_actions, low_level_action), dim=0)
 
@@ -239,7 +241,7 @@ class AnymalCEnv(DirectRLEnv):
             dim=-1,
         )
         
-        obs = torch.cat(
+        obs_h = torch.cat(
             [
                 tensor
                 for tensor in (
@@ -259,7 +261,8 @@ class AnymalCEnv(DirectRLEnv):
             dim=-1,
         )
         self.observations = {"policy": obs}
-        return self.observations
+        obs_h_return  = {"policy": obs_h}
+        return obs_h_return
 
     def _get_rewards(self) -> torch.Tensor:
         # resample the target point every half episode
@@ -291,8 +294,9 @@ class AnymalCEnv(DirectRLEnv):
         
         #### in root frame ####
         RF_FOOT_pos_root = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self.root_position[:, :3]
-        foot_pos_deviation = torch.norm((RF_FOOT_pos_root-self._commands[:, :3]), dim=1)
-
+        RF_foot_pos_deviation = torch.norm((RF_FOOT_pos_root-self._commands[:, :3]), dim=1)
+        LF_FOOT_pos_root = self._robot.data.body_pos_w[:, self._LF_FOOT[0], :3] - self.root_position[:, :3]
+        LF_foot_pos_deviation = torch.norm((LF_FOOT_pos_root-self._commands[:, :3]), dim=1)
         ### mass deviation (dont know the function)
         # mass_deviation = torch.norm(self._robot.data.mass_center_w[:, :3] - self._commands[:, :3], dim=1)
         
@@ -322,10 +326,16 @@ class AnymalCEnv(DirectRLEnv):
         # termination penalty(w7)
         died = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._BASE], dim=-1), dim=1)[0] > 1.0, dim=1)
         
-        rewards = {
-            "Re": self.cfg.w1* torch.exp(-(foot_pos_deviation/self.cfg.sigma))* self.step_dt,
-            "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt, 
-        }
+        if self.action_index == 0:
+            rewards = {
+                "Re": self.cfg.w1* torch.exp(-(RF_foot_pos_deviation/self.cfg.sigma))* self.step_dt,
+                "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt, 
+            }
+        elif self.action_index == 1:
+            rewards = {
+                "Re": self.cfg.w1* torch.exp(-(LF_foot_pos_deviation/self.cfg.sigma))* self.step_dt,
+                "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step
+            }
         ### for high level policy
         # rewards = {
         #     "Rm": self.cfg.w1* torch.exp(-(mass_deviation/self.cfg.sigma))* self.step_dt,
