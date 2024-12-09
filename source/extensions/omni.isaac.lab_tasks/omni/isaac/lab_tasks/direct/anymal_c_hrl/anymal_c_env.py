@@ -238,6 +238,26 @@ class AnymalCEnv(DirectRLEnv):
             ],
             dim=-1,
         )
+        
+        obs = torch.cat(
+            [
+                tensor
+                for tensor in (
+                    self._robot.data.root_lin_vel_b,
+                    self._robot.data.root_ang_vel_b,
+                    self._robot.data.projected_gravity_b,
+                    # self._commands_base, # base frame 
+                    self._commands, # root frame
+                    self._robot.data.joint_pos,
+                    self._robot.data.joint_vel,
+                    # height_data,
+                    # self._actions, ### add (delete)
+                    self.low_level_actions,
+                )
+                if tensor is not None
+            ],
+            dim=-1,
+        )
         self.observations = {"policy": obs}
         return self.observations
 
