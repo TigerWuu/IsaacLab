@@ -59,7 +59,7 @@ class AnymalCEnv(DirectRLEnv):
         # self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
         ### add
         # 改為discrete動作空間
-        self.action_space = gym.spaces.Discrete(4)
+        # self.action_space = gym.spaces.Discrete(4)
         ###
         self._actions = torch.zeros(
             self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device
@@ -92,7 +92,7 @@ class AnymalCEnv(DirectRLEnv):
         # init base frame origin (still confused about how to get this)
         # self.root_position = self._robot.data.default_root_state
         # self.root_position[:, :3] += self._terrain.env_origins
-        self.root_position = self._robot.data.body_pos_w[:, self._BASE[0], :3]
+        self.root_position = self._terrain.env_origins
 
         # for curriculum learning
         self.x = [0.3, 0.5]
@@ -138,7 +138,8 @@ class AnymalCEnv(DirectRLEnv):
         # log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
         # log_root_path = os.path.abspath(log_root_path)
         log_root_path = os.path.join("best_log")
-        low_policy_name = ["rf_foot", "lf_foot", "rh_foot", "lh_foot"]
+        # low_policy_name = ["rf_foot", "lf_foot", "rh_foot", "lh_foot"]
+        low_policy_name = ["rf_foot", "lf_foot"]
         low_policy_paths = [] 
         for i in range(len(low_policy_name)):
             low_policy_paths.append(os.path.abspath(os.path.join(log_root_path, low_policy_name[i])))
@@ -156,7 +157,7 @@ class AnymalCEnv(DirectRLEnv):
         
         ### multi-path
         self.low_level_policies = []
-        for i in range(4):
+        for i in range(len(resume_paths)):
             runner.load(resume_paths[i])
             runner.eval_mode()
             policy = runner.get_inference_policy()
@@ -216,7 +217,7 @@ class AnymalCEnv(DirectRLEnv):
         # print("command_ : ", self._commands)
 
         #### in base frame ####
-        # self._commands_base = self._commands - base_pos_root # command : root to base
+        self._commands_base = self._commands - base_pos_root # command : root to base
         
         height_data = None
         if isinstance(self.cfg, AnymalCRoughEnvCfg):
@@ -230,8 +231,8 @@ class AnymalCEnv(DirectRLEnv):
                     self._robot.data.root_lin_vel_b,
                     self._robot.data.root_ang_vel_b,
                     self._robot.data.projected_gravity_b,
-                    # self._commands_base, # base frame 
-                    self._commands, # root frame
+                    self._commands_base, # base frame 
+                    # self._commands, # root frame
                     self._robot.data.joint_pos,
                     self._robot.data.joint_vel,
                     # height_data,
@@ -270,12 +271,12 @@ class AnymalCEnv(DirectRLEnv):
         
 
         #### in base frame ####
-        # RF_FOOT_pos_base = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self._robot.data.body_pos_w[:, self._BASE[0], :3]
-        # foot_pos_deviation = torch.norm((RF_FOOT_pos_base-self._commands_base[:, :3]), dim=1)
+        RF_FOOT_pos_base = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self._robot.data.body_pos_w[:, self._BASE[0], :3]
+        foot_pos_deviation = torch.norm((RF_FOOT_pos_base-self._commands_base[:, :3]), dim=1)
         
         #### in root frame ####
-        RF_FOOT_pos_root = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self.root_position[:, :3]
-        foot_pos_deviation = torch.norm((RF_FOOT_pos_root-self._commands[:, :3]), dim=1)
+        # RF_FOOT_pos_root = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self.root_position[:, :3]
+        # foot_pos_deviation = torch.norm((RF_FOOT_pos_root-self._commands[:, :3]), dim=1)
 
         ### mass deviation (dont know the function)
         # mass_deviation = torch.norm(self._robot.data.mass_center_w[:, :3] - self._commands[:, :3], dim=1)
@@ -350,10 +351,7 @@ class AnymalCEnv(DirectRLEnv):
         x = np.random.uniform(self.x[0], self.x[1]+self.ex)
         y = np.random.uniform(self.y[0]-self.ex, self.y[1])
         z = np.random.uniform(self.z[0], self.z[1])
-        # second curriculum
-        # self.x = np.random.uniform(0.2, 0.6)
-        # self.y = np.random.uniform(-0.3, 0.1)
-        # self.z = np.random.uniform(0.0, 0.5)
+       
 
         # self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(0.3, 0.6)
         self._commands[env_ids] = torch.tensor([x, y, z], device=self.device)
@@ -370,7 +368,7 @@ class AnymalCEnv(DirectRLEnv):
         self._robot.write_root_velocity_to_sim(default_root_state[:, 7:], env_ids)
         self._robot.write_joint_state_to_sim(joint_pos, joint_vel, None, env_ids)
         # Reset base frame origin
-        self.root_position = self._robot.data.body_pos_w[:, self._BASE[0], :3]
+        # self.root_position = self._robot.data.body_pos_w[:, self._BASE[0], :3]
         # Logging
         extras = dict()
         for key in self._episode_sums.keys():
