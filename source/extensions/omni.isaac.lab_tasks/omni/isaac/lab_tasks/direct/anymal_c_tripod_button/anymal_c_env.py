@@ -15,7 +15,7 @@ import queue
 import omni.isaac.core.utils.prims as prim_utils
 
 import omni.isaac.lab.sim as sim_utils
-from omni.isaac.lab.assets import Articulation
+from omni.isaac.lab.assets import Articulation, RigidObject
 from omni.isaac.lab.envs import DirectRLEnv
 from omni.isaac.lab.sensors import ContactSensor, RayCaster
 
@@ -26,9 +26,9 @@ from .targetVisualization import targetVisualization as targetVis
 import wandb
 
 my_config = {
-    "run_id": "Quadruped_tripod_curri-01-xyz_resampled-6s_AvgRe-13_frame-base_friction-1-my-box_buffer-1000_RF-3",
-    "epoch_num": 12000,
-    "description": "0 to 12000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
+    "run_id": "Quadruped_tripod_curri-01-xyz_resampled-6s_AvgRe-13_frame-base_friction-1-my-box_buffer-1000_force_RF",
+    "epoch_num": 8000,
+    "description": "0 to 8000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
     "ex-max" : 0.7,
     "ex-step" : 0.1,
     "ex-threshold" : 13,
@@ -99,6 +99,8 @@ class AnymalCEnv(DirectRLEnv):
         # self.z = [0.4, 1.1]
         # self.ex = 0.0
 
+        # set object
+        self.rigid_poses = torch.zeros(self.num_envs, 7, device=self.device)
 
         # for marker visualization
         self.target = targetVis(scale=0.03, num_envs=self.num_envs)
@@ -119,6 +121,10 @@ class AnymalCEnv(DirectRLEnv):
             )
     
     def _setup_scene(self):
+        # add object
+        self.object = RigidObject(self.cfg.cone_cfg)
+        self.scene.rigid_objects["object"] = self.object
+        
         self._robot = Articulation(self.cfg.robot)
         self.scene.articulations["robot"] = self._robot
         self._contact_sensor = ContactSensor(self.cfg.contact_sensor)
@@ -160,6 +166,10 @@ class AnymalCEnv(DirectRLEnv):
         base_pos_root = self._robot.data.body_pos_w[:, self._BASE[0], :3] - self.root_position[:, :3]
         self._commands_base = self._commands - base_pos_root # command : root to base
         
+        contacts_forces = self._contact_sensor.data.net_forces_w
+        self._rf_norm = torch.norm(contacts_forces[:, self._RF_FOOT_f[0]], dim=1).unsqueeze(-1)
+        # print("RF force : ", contacts_forces[:, self._RF_FOOT_f[0]]) 
+
         height_data = None
         if isinstance(self.cfg, AnymalCRoughEnvCfg):
             height_data = (
@@ -178,6 +188,7 @@ class AnymalCEnv(DirectRLEnv):
                     self._robot.data.joint_vel,
                     # height_data,
                     self._actions,
+                    self._rf_norm,
                 )
                 if tensor is not None
             ],
@@ -206,7 +217,12 @@ class AnymalCEnv(DirectRLEnv):
                 z = np.random.uniform(self.z[0], self.z[1]+2*self.ex)
             else:
                 z = np.random.uniform(self.z[0], 1.2)
+
             self._commands[resampled_ids] = torch.tensor([x, y, z], device=self.device)
+
+            root_state = self.object.data.default_root_state.clone()[resampled_ids]
+            root_state[:, :3] = torch.tensor([x, y, z], device=self.device)+self.scene.env_origins[resampled_ids]
+            self.object.write_root_pose_to_sim(root_state[:, :7], resampled_ids)
         
         
         ### Re ###
@@ -283,6 +299,8 @@ class AnymalCEnv(DirectRLEnv):
 
         if env_ids is None or len(env_ids) == self.num_envs:
             env_ids = self._robot._ALL_INDICES
+
+        self.object.reset(env_ids)
         self._robot.reset(env_ids)
         super()._reset_idx(env_ids)
         if len(env_ids) == self.num_envs:
@@ -301,6 +319,12 @@ class AnymalCEnv(DirectRLEnv):
             z = np.random.uniform(self.z[0], 1.2)
 
         self._commands[env_ids] = torch.tensor([x, y, z], device=self.device)
+        # reset object position
+        root_state = self.object.data.default_root_state.clone()[env_ids]
+        # add xyz to root state[env_ids]
+        root_state[:, :3] = torch.tensor([x, y, z], device=self.device)+self.scene.env_origins[env_ids]
+        self.object.write_root_pose_to_sim(root_state[:, :7], env_ids)
+
         # target visualization
         self.target.set_marker_position(self._commands, self.root_position)
         self.target.reset_indices(env_ids)

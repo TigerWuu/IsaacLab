@@ -16,7 +16,7 @@ from . import agents
 ##
 
 gym.register(
-    id="Isaac-Velocity-Flat-Anymal-C-Direct-tripod-v0",
+    id="Isaac-Velocity-Flat-Anymal-C-Direct-tripod-button-v0",
     entry_point=f"{__name__}.anymal_c_env:AnymalCEnv",
     disable_env_checker=True,
     kwargs={
@@ -28,7 +28,7 @@ gym.register(
 )
 
 gym.register(
-    id="Isaac-Velocity-Rough-Anymal-C-Direct-tripod-v0",
+    id="Isaac-Velocity-Rough-Anymal-C-Direct-tripod-button-v0",
     entry_point=f"{__name__}.anymal_c_env:AnymalCEnv",
     disable_env_checker=True,
     kwargs={

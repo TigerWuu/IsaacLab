@@ -5,7 +5,7 @@
 
 import omni.isaac.lab.envs.mdp as mdp
 import omni.isaac.lab.sim as sim_utils
-from omni.isaac.lab.assets import ArticulationCfg
+from omni.isaac.lab.assets import ArticulationCfg, RigidObjectCfg
 from omni.isaac.lab.envs import DirectRLEnvCfg
 from omni.isaac.lab.managers import EventTermCfg as EventTerm
 from omni.isaac.lab.managers import SceneEntityCfg
@@ -56,7 +56,7 @@ class AnymalCFlatEnvCfg(DirectRLEnvCfg):
     decimation = 4
     action_scale = 0.5
     action_space = 12
-    observation_space = 48
+    observation_space = 49
     state_space = 0
 
     # simulation
@@ -72,6 +72,20 @@ class AnymalCFlatEnvCfg(DirectRLEnvCfg):
             restitution=0.0,
         ),
     )
+
+    # add cone
+    cone_cfg = RigidObjectCfg(
+        prim_path="/World/envs/env_.*/Cone",
+        spawn=sim_utils.CuboidCfg(
+        size=(0.001, 0.001, 0.001),
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
+            mass_props=sim_utils.MassPropertiesCfg(mass=1.0),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.0, 1.0), metallic=0.2),
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(1.0, 0.0, 0.6)),
+    )
+
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="plane",
