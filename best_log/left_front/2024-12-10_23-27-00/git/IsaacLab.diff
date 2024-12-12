@@ -1,0 +1,152 @@
+--- git status ---
+On branch tiger
+Your branch is ahead of 'origin/tiger' by 2 commits.
+  (use "git push" to publish your local commits)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/anymal_c_tripod/anymal_c_env.py
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/anymal_c_tripod/anymal_c_env.py b/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/anymal_c_tripod/anymal_c_env.py
+index 39d6bf5a..645311b2 100644
+--- a/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/anymal_c_tripod/anymal_c_env.py
++++ b/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/anymal_c_tripod/anymal_c_env.py
+@@ -26,7 +26,7 @@ from .targetVisualization import targetVisualization as targetVis
+ import wandb
+ 
+ my_config = {
+-    "run_id": "Quadruped_tripod_curri-01-xyz_resampled-6s_AvgRe-13_frame-base_friction-1-paper-box_buffer-1000_LF",
++    "run_id": "Quadruped_tripod_curri-01-xyz_resampled-6s_AvgRe-13_frame-base_friction-1-my-box_buffer-1000_LF-3",
+     "epoch_num": 12000,
+     "description": "0 to 12000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
+     "ex-max" : 0.7,
+@@ -34,8 +34,13 @@ my_config = {
+     "ex-threshold" : 13,
+     "resample-time" : 6,
+     # "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 0.4]],
+-    "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 1.2]], # paper box
++    "xyz0": [[0.6, 0.8], [-0.1, 0.3], [0.0, 0.4]],
++    # "xyz0": [[0.7, 0.7], [0.5, 0.5], [0.5, 0.5]], # test box
++    # "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 1.2]], # paper box
+     "ex": 0.0,
++    "touched": 0.08, # touched threshold
++    "foot" : "LF_FOOT", # RF_FOOT, LF_FOOT
++    "wandb" : True,
+ }
+ 
+ class AnymalCEnv(DirectRLEnv):
+@@ -72,8 +77,9 @@ class AnymalCEnv(DirectRLEnv):
+         self._undesired_contact_body_shank_ids, _ = self._contact_sensor.find_bodies(".*SHANK")
+ 
+         # find the right front foot transform in world frame(e.g.)
+-        self._RF_FOOT, _ = self._robot.find_bodies("RF_FOOT")
+-        self._LF_FOOT, _ = self._robot.find_bodies("LF_FOOT")
++        # self._RF_FOOT, _ = self._robot.find_bodies("RF_FOOT")
++        # self._LF_FOOT, _ = self._robot.find_bodies("LF_FOOT")
++        self._FOOT, _ = self._robot.find_bodies(my_config["foot"])
+         self._BASE, _ = self._robot.find_bodies("base")
+         # init base frame origin (still confused about how to get this)
+         # self.root_position = self._robot.data.default_root_state[:, :3]
+@@ -105,11 +111,12 @@ class AnymalCEnv(DirectRLEnv):
+         self.reward_buffer = deque(maxlen=self.buffer_size)
+ 
+         # wandb logging
+-        run = wandb.init(
+-            project="RL_Final",
+-            config=my_config,
+-            id=my_config["run_id"]
+-        )
++        if my_config["wandb"]:
++            run = wandb.init(
++                project="RL_Final",
++                config=my_config,
++                id=my_config["run_id"]
++            )
+     
+     def _setup_scene(self):
+         self._robot = Articulation(self.cfg.robot)
+@@ -194,11 +201,11 @@ class AnymalCEnv(DirectRLEnv):
+             resampled_ids = torch.tensor(resampled_ids, device=self.device)
+             x = np.random.uniform(self.x[0], self.x[1]+2*self.ex)
+             y = np.random.uniform(self.y[0]-self.ex, self.y[1]+self.ex)
+-            z = np.random.uniform(self.z[0], self.z[1])
+-            # if self.z[1]<1.1:
+-            #     z = np.random.uniform(self.z[0], self.z[1]+2*self.ex)
+-            # else:
+-            #     z = np.random.uniform(self.z[0], self.z[1])
++            # z = np.random.uniform(self.z[0], self.z[1])
++            if self.z[1]+2*self.ex<1.1:
++                z = np.random.uniform(self.z[0], self.z[1]+2*self.ex)
++            else:
++                z = np.random.uniform(self.z[0], 1.2)
+             self._commands[resampled_ids] = torch.tensor([x, y, z], device=self.device)
+         
+         
+@@ -209,16 +216,16 @@ class AnymalCEnv(DirectRLEnv):
+ 
+         #### in base frame ####
+         # LF_FOOT or RF_FOOT
+-        FOOT_pos_base = self._robot.data.body_pos_w[:, self._LF_FOOT[0], :3] - self._robot.data.body_pos_w[:, self._BASE[0], :3]
++        FOOT_pos_base = self._robot.data.body_pos_w[:, self._FOOT[0], :3] - self._robot.data.body_pos_w[:, self._BASE[0], :3]
+         foot_pos_deviation = torch.norm((FOOT_pos_base-self._commands_base[:, :3]), dim=1)
+       
+         #### in root frame ####
+-        # RF_FOOT_pos_root = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self.root_position[:, :3]
+-        # foot_pos_deviation = torch.norm((RF_FOOT_pos_root-self._commands[:, :3]), dim=1)
++        # FOOT_pos_root = self._robot.data.body_pos_w[:, self._FOOT[0], :3] - self.root_position[:, :3]
++        # foot_pos_deviation = torch.norm((FOOT_pos_root-self._commands[:, :3]), dim=1)
+ 
+         # target visualization
+         self.target.set_marker_position(self._commands, self.root_position)
+-        self.target.check_marker_touched(foot_pos_deviation, 0.06)
++        self.target.check_marker_touched(foot_pos_deviation, my_config["touched"])
+         self.target.visualize()
+         
+         # print("foot_pos_deviation : ", foot_pos_deviation)
+@@ -287,22 +294,18 @@ class AnymalCEnv(DirectRLEnv):
+         # first curriculum
+         x = np.random.uniform(self.x[0], self.x[1]+2*self.ex)
+         y = np.random.uniform(self.y[0]-self.ex, self.y[1]+self.ex)
+-        z = np.random.uniform(self.z[0], self.z[1])
+-        # if self.z[1]<1.1:
+-        #     z = np.random.uniform(self.z[0], self.z[1]+2*self.ex)
+-        # else:
+-        #     z = np.random.uniform(self.z[0], self.z[1])
++        # z = np.random.uniform(self.z[0], self.z[1])
++        if self.z[1]+2*self.ex < 1.1:
++            z = np.random.uniform(self.z[0], self.z[1]+2*self.ex)
++        else:
++            z = np.random.uniform(self.z[0], 1.2)
+ 
+-        # self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(0.3, 0.6)
+         self._commands[env_ids] = torch.tensor([x, y, z], device=self.device)
+         # target visualization
+         self.target.set_marker_position(self._commands, self.root_position)
+         self.target.reset_indices(env_ids)
+         self.target.visualize()
+ 
+-        # self.target = targetVis(self._commands[env_ids], self.root_position[env_ids],scale=0.03, num_envs=self.num_envs)
+-        # self.target.visualize()
+-
+         # Reset robot state
+         joint_pos = self._robot.data.default_joint_pos[env_ids]
+         joint_vel = self._robot.data.default_joint_vel[env_ids]
+@@ -343,7 +346,9 @@ class AnymalCEnv(DirectRLEnv):
+         extras["Episode_Termination/base_contact"] = torch.count_nonzero(self.reset_terminated[env_ids]).item()
+         extras["Episode_Termination/time_out"] = torch.count_nonzero(self.reset_time_outs[env_ids]).item()
+         self.extras["log"].update(extras)
+-        # wandb logging
+-        wandb.log(self.extras["log"]) 
+-        wandb.log({"avg_reward_100": avg_reward.item()})
+-        wandb.log({"curriculum": self.ex})
++        
++        if my_config["wandb"]:
++            # wandb logging
++            wandb.log(self.extras["log"]) 
++            wandb.log({"avg_reward_100": avg_reward.item()})
++            wandb.log({"curriculum": self.ex})
