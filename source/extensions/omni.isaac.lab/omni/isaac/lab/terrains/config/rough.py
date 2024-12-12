@@ -61,7 +61,7 @@ TRIPOD_ROUGH_TERRAINS_CFG = TerrainGeneratorCfg(
     use_cache=False,
     sub_terrains={
         "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
-            proportion=1.0, noise_range=(-0.04, 0.04), noise_step=0.01, border_width=0.25, downsampled_scale=0.2
+            proportion=1.0, noise_range=(-0.08, 0.08), noise_step=0.01, border_width=0.25, downsampled_scale=0.2
         ),
     },
 )
