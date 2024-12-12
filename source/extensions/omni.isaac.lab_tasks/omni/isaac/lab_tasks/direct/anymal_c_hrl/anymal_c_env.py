@@ -21,6 +21,7 @@ from .targetVisualization import targetVisualization as targetVis
 import wandb
 
 ### add
+from collections import deque
 import pickle
 import os
 import cli_args
@@ -41,10 +42,12 @@ from omni.isaac.lab.envs import (
 from omni.isaac.lab_tasks.direct.anymal_c_hrl.agents.rsl_rl_ppo_cfg import AnymalCFlatPPORunnerCfg, AnymalCRoughPPORunnerCfg
 
 my_config = {
-    "run_id": "Quadruped_tripod_root_curriculum-02_resampeld-6s",
+    "run_id": "Quadruped_hrl_v3",
     "epoch_num":8000,
     "description": "8000 to 16000 epochs, command curriculum in x and y axis, resampled every 6s, continues training",
-    "xyz": [[0.3, 0.5], [-0.2, 0.0], [0.1, 0.4]],
+    # "xyz": [[0.3, 0.5], [-0.2, 0.0], [0.1, 0.4]],
+    "xyz": [[0.5, 0.5], [-0.2, -0.2], [0.3, 0.3]],
+    "wandb" : True,
 }
 
 class AnymalCEnv(DirectRLEnv):
@@ -97,12 +100,16 @@ class AnymalCEnv(DirectRLEnv):
 
         # for curriculum learning
         self.x = [0.3, 0.5]
-        self.y = [-0.2, 0.0]
+        self.y = [-0.2, 0.2]
         self.z = [0.1, 0.4]
         self.ex = 0.0
 
         # for resampling target points
         self.resampled = torch.zeros(self.num_envs)
+
+        # create a queue with buffer size 100
+        self.buffer_size = 1000
+        self.reward_buffer = deque(maxlen=self.buffer_size)
 
         ### add for hrl
         self.get_low_level_policy()
@@ -110,10 +117,15 @@ class AnymalCEnv(DirectRLEnv):
 
         # wandb logging
         # run = wandb.init(
-        #     project="RL_Final",
+        #     project="RL_Final_hrl",
         #     config=my_config,
         #     id=my_config["run_id"]
         # )
+        wandb.init(
+            project="RL_Final_hrl",
+            config=my_config,
+            id=my_config["run_id"]
+        )
     ### add
     # @hydra_task_config("Isaac-Velocity-Flat-Anymal-C-Direct-hrl-v0", "rsl_rl_cfg_entry_point")
     def get_low_level_policy(self, agent_cfg = AnymalCFlatPPORunnerCfg()):
@@ -146,7 +158,7 @@ class AnymalCEnv(DirectRLEnv):
         #     low_policy = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
         #     resume_paths.append(low_policy)
         ###
-        resume_paths = ["/home/hyc/IsaacLab/saved_obs/model_7999.pt","/home/hyc/IsaacLab/saved_obs/model_7999.pt"]
+        resume_paths = ["/home/hyc/IsaacLab/saved_obs/model_right.pt","/home/hyc/IsaacLab/saved_obs/model_left.pt"]
 
         # create runner from rsl-rl
         # runner = OnPolicyRunner(agent_cfg.to_dict(), device=agent_cfg.device)
@@ -192,6 +204,14 @@ class AnymalCEnv(DirectRLEnv):
             low_level_action = self.low_level_policies[self.action_index](obs) 
             self.low_level_actions[i] = low_level_action
             # low_level_actions = torch.cat((low_level_actions, low_level_action), dim=0)
+
+            # Log to W&B
+            if i == 100 or i == 200 or i == 300 or i == 400:
+                wandb.log({
+                    "env_id": i,
+                    "action_index": self.action_index,
+                    "low_level_action": low_level_action.cpu().numpy().tolist()
+                })
 
         # low_level_action = self.low_level_policies[action_index](self.observations) # how to setup discrete action (might be direct_rl_env?)
         # self._actions = self.low_level_actions.clone()
@@ -280,8 +300,8 @@ class AnymalCEnv(DirectRLEnv):
             y = np.random.uniform(self.y[0]-self.ex, self.y[1])
             z = np.random.uniform(self.z[0], self.z[1])
             self._commands[resampled_ids] = torch.tensor([x, y, z], device=self.device)
-            # self.target = targetVis(self._commands[resampled_ids], self.root_position[resampled_ids], scale=0.03, num_envs=self.num_envs)
-            # self.target.visualize()
+            self.target = targetVis(self._commands[resampled_ids], self.root_position[resampled_ids], scale=0.03, num_envs=self.num_envs)
+            self.target.visualize()
         
         ### Re ###
         # foot position(w1)
@@ -347,6 +367,12 @@ class AnymalCEnv(DirectRLEnv):
         for key, value in rewards.items():
             self._episode_sums[key] += value
 
+        # wandb.log({
+        #     "reward": reward,
+        #     "Re": rewards["Re"],
+        #     "Rn": rewards["Rn"]
+        #     })
+
         return reward
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
@@ -384,8 +410,8 @@ class AnymalCEnv(DirectRLEnv):
         # self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(0.3, 0.6)
         self._commands[env_ids] = torch.tensor([x, y, z], device=self.device)
         # target visualization
-        # self.target = targetVis(self._commands[env_ids], self.root_position[env_ids],scale=0.03, num_envs=self.num_envs)
-        # self.target.visualize()
+        self.target = targetVis(self._commands[env_ids], self.root_position[env_ids],scale=0.03, num_envs=self.num_envs)
+        self.target.visualize()
 
         # Reset robot state
         joint_pos = self._robot.data.default_joint_pos[env_ids]
@@ -416,5 +442,5 @@ class AnymalCEnv(DirectRLEnv):
         extras["Episode_Termination/time_out"] = torch.count_nonzero(self.reset_time_outs[env_ids]).item()
         self.extras["log"].update(extras)
         # wandb logging
-        # wandb.log(self.extras["log"]) 
-        # wandb.log({"curriculum": self.ex})
+        wandb.log(self.extras["log"]) 
+        wandb.log({"curriculum": self.ex})
