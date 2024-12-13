@@ -62,7 +62,8 @@ class AnymalCFlatEnvCfg(DirectRLEnvCfg):
     ### add
     action_space = Discrete(2) ### 2o4
     ###
-    observation_space = 48
+    # observation_space = 48
+    observation_space = 37
     state_space = 0
 
     # simulation

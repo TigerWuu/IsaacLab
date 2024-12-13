@@ -42,9 +42,9 @@ from omni.isaac.lab.envs import (
 from omni.isaac.lab_tasks.direct.anymal_c_hrl.agents.rsl_rl_ppo_cfg import AnymalCFlatPPORunnerCfg, AnymalCRoughPPORunnerCfg
 
 my_config = {
-    "run_id": "Quadruped_hrl_1213_3",
+    "run_id": "Quadruped_hrl_mod_obs-2",
     "epoch_num": 1000,
-    "description": "0 to 1000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
+    "description": "0 to 1000 epochs, with observation to high level action",
     "ex-max" : 0.7,
     "ex-step" : 0.1,
     "ex-threshold" : 15,
@@ -71,15 +71,17 @@ class AnymalCEnv(DirectRLEnv):
         # Joint position command (deviation from default joint positions)
         # self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
         ### add
-        # 改為discrete動作空間
+        # discrete action space
         self.action_space = gym.spaces.Discrete(2) ### 2o4
-        ###
+        ### high level action space(useless)
         self._actions = torch.zeros(
             self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device
         )
         self._previous_actions = torch.zeros(
             self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device
         )
+        ### high level action space(1 or 2)
+        self.action_indices = torch.zeros(self.num_envs, 1, device=self.device)
 
         # x,y,z target points in root frame
         self._commands = torch.zeros(self.num_envs, 3, device=self.device)
@@ -169,7 +171,7 @@ class AnymalCEnv(DirectRLEnv):
         #     low_policy = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
         #     resume_paths.append(low_policy)
         ###
-        resume_paths = ["/home/hyc/IsaacLab/saved_obs/model_right.pt","/home/hyc/IsaacLab/saved_obs/model_left.pt"]
+        resume_paths = ["/home/tigerwuu-ncs/IsaacLab/saved_obs/model_right.pt","/home/tigerwuu-ncs/IsaacLab/saved_obs/model_left.pt"]
 
         # create runner from rsl-rl
         # runner = OnPolicyRunner(agent_cfg.to_dict(), device=agent_cfg.device)
@@ -211,6 +213,7 @@ class AnymalCEnv(DirectRLEnv):
         for i in range(self.num_envs):
             obs = self.observations["policy"][i]
             self.action_index = torch.argmax(actions[i]).item()
+            self.action_indices[i] = self.action_index
             # print("action_index : ", action_index)
             low_level_action = self.low_level_policies[self.action_index](obs) 
             self.low_level_actions[i] = low_level_action
@@ -285,7 +288,8 @@ class AnymalCEnv(DirectRLEnv):
                     self._robot.data.joint_vel,
                     # height_data,
                     # self._actions, ### add (delete)
-                    self.low_level_actions,
+                    self.action_indices,  ## high level action
+                    # self.low_level_actions,
                 )
                 if tensor is not None
             ],
