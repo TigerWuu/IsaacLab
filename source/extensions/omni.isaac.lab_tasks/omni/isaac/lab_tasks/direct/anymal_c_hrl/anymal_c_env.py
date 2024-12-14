@@ -42,9 +42,9 @@ from omni.isaac.lab.envs import (
 from omni.isaac.lab_tasks.direct.anymal_c_hrl.agents.rsl_rl_ppo_cfg import AnymalCFlatPPORunnerCfg, AnymalCRoughPPORunnerCfg
 
 my_config = {
-    "run_id": "Quadruped_hrl_mod_obs-2",
+    "run_id": "Quadruped_hrl_mod_obs-runner-3",
     "epoch_num": 1000,
-    "description": "0 to 1000 epochs, with observation to high level action",
+    "description": "0 to 1000 epochs, with observation to high level action, fixed runner problem",
     "ex-max" : 0.7,
     "ex-step" : 0.1,
     "ex-threshold" : 15,
@@ -57,7 +57,7 @@ my_config = {
     "touched": 0.08, # touched threshold
     # "foot" : "RF_FOOT", 
     # "foot" : "RF_FOOT", "LF_FOOT"
-    "wandb" : True,
+    "wandb" : False,
 }
 
 class AnymalCEnv(DirectRLEnv):
@@ -175,16 +175,30 @@ class AnymalCEnv(DirectRLEnv):
 
         # create runner from rsl-rl
         # runner = OnPolicyRunner(agent_cfg.to_dict(), device=agent_cfg.device)
-        runner = LoadPPOModel(agent_cfg.to_dict(), device=agent_cfg.device)
+        runner_right = LoadPPOModel(agent_cfg.to_dict(), device=agent_cfg.device)
+        runner_left = LoadPPOModel(agent_cfg.to_dict(), device=agent_cfg.device)
         
         ### multi-path
         self.low_level_policies = []
-        for i in range(2): ### 2o4
-            runner.load(resume_paths[i])
-            runner.eval_mode()
-            policy = runner.get_inference_policy()
-            self.low_level_policies.append(policy)
+        runner_right.load(resume_paths[0])
+        runner_right.eval_mode()
+        policy_right = runner_right.get_inference_policy()
+        self.low_level_policies.append(policy_right)
+        runner_left.load(resume_paths[1])
+        runner_left.eval_mode()
+        policy_left = runner_left.get_inference_policy()
+        self.low_level_policies.append(policy_left) 
         ###
+        # for i in range(2): ### 2o4
+        #     runner.load(resume_paths[i])
+        #     runner.eval_mode()
+        #     policy = runner.get_inference_policy()
+        #     self.low_level_policies.append(policy)
+        
+        # print("Load Low Level PPO Model")
+        # print(self.low_level_policies[0]==self.low_level_policies[1])
+        # print(hex(id(self.low_level_policies[0])))
+        # print(hex(id(self.low_level_policies[1])))
 
     ###
     
@@ -214,7 +228,6 @@ class AnymalCEnv(DirectRLEnv):
             obs = self.observations["policy"][i]
             self.action_index = torch.argmax(actions[i]).item()
             self.action_indices[i] = self.action_index
-            # print("action_index : ", action_index)
             low_level_action = self.low_level_policies[self.action_index](obs) 
             self.low_level_actions[i] = low_level_action
             # low_level_actions = torch.cat((low_level_actions, low_level_action), dim=0)
@@ -224,9 +237,9 @@ class AnymalCEnv(DirectRLEnv):
                 wandb.log({
                     "env_id": i,
                     "action_index": self.action_index,
-                    "low_level_action": low_level_action.cpu().numpy().tolist()
+                    # "low_level_action": low_level_action.cpu().numpy().tolist()
                 })
-
+        # print("action_indices : ", self.action_indices)
         # low_level_action = self.low_level_policies[action_index](self.observations) # how to setup discrete action (might be direct_rl_env?)
         # self._actions = self.low_level_actions.clone()
 
