@@ -42,15 +42,14 @@ from omni.isaac.lab.envs import (
 from omni.isaac.lab_tasks.direct.anymal_c_hrl.agents.rsl_rl_ppo_cfg import AnymalCFlatPPORunnerCfg, AnymalCRoughPPORunnerCfg
 
 my_config = {
-    "run_id": "hrl_1214_1000iter_HighAction&CenterMass_obs_0.2+0.3box_update",
-    # "run_id": "test_3",
+    "run_id": "hrl_1214_500iter_HighAction&CenterMass_obs_0.2+0.3box_ppoC5E10",
     "epoch_num": 1000,
     "description": "0 to 1000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
     "ex-max" : 0.7,
     "ex-step" : 0.1,
     "ex-threshold" : 15,
     "resample-time" : 6,
-    # "xyz0": [[0.6, 0.8], [-0.2, -0.2], [0.0, 0.4]],
+    # "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 0.4]],
     "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 0.4]],
     # "xyz0": [[0.6, 0.6], [-0.6, -0.6], [0.2, 0.2]], # for play.py
     # "xyz0": [[0.7, 0.7], [0.5, 0.5], [0.5, 0.5]], # test box
@@ -174,8 +173,8 @@ class AnymalCEnv(DirectRLEnv):
         #     low_policy = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
         #     resume_paths.append(low_policy)
         ###
-        resume_paths = ["/home/hyc/IsaacLab/saved_obs/model_right.pt","/home/hyc/IsaacLab/saved_obs/model_19998_left.pt"]
-        
+        resume_paths = ["/home/hyc/IsaacLab/saved_obs/model_right.pt","/home/hyc/IsaacLab/saved_obs/model_left.pt"]
+
         # create runner from rsl-rl
         # runner = OnPolicyRunner(agent_cfg.to_dict(), device=agent_cfg.device)
         runner_r = LoadPPOModel(agent_cfg.to_dict(), device=agent_cfg.device)
@@ -194,6 +193,7 @@ class AnymalCEnv(DirectRLEnv):
         runner_l.eval_mode()
         policy_l = runner_l.get_inference_policy()
         self.low_level_policies.append(policy_l)
+        
         ###
 
     ###
@@ -232,7 +232,7 @@ class AnymalCEnv(DirectRLEnv):
             # Log to W&B
             if i == 100 or i == 200 or i == 300 or i == 400:
                 wandb.log({
-                    # "env_id": i,
+                    "env_id": i,
                     "action_index": self.action_index
                 })
 
@@ -364,9 +364,6 @@ class AnymalCEnv(DirectRLEnv):
         LF_FOOT_pos_base = self._robot.data.body_pos_w[:, self._LF_FOOT[0], :3] - self._robot.data.body_pos_w[:, self._BASE[0], :3]
         LF_foot_pos_deviation = torch.norm((LF_FOOT_pos_base-self._commands_base[:, :3]), dim=1)
 
-        HL_actions = self.high_level_actions.squeeze()
-        foot_pos_deviation = torch.where(HL_actions == 0, RF_foot_pos_deviation, LF_foot_pos_deviation)
-
         mass_center_base = self._robot.data.body_pos_w[:, self._BASE[0], :3]
         mass_center_deviation = torch.norm((mass_center_base-self.root_position), dim=1)
 
@@ -382,11 +379,10 @@ class AnymalCEnv(DirectRLEnv):
         # target visualization
         if my_config["target_visual"]:
             self.target.set_marker_position(self._commands, self.root_position)
-            self.target.check_marker_touched(foot_pos_deviation, my_config["touched"])
-            # if self.action_index == 0:
-            #     self.target.check_marker_touched(RF_foot_pos_deviation, my_config["touched"])
-            # elif self.action_index == 1:
-            #     self.target.check_marker_touched(LF_foot_pos_deviation, my_config["touched"])
+            if self.action_index == 0:
+                self.target.check_marker_touched(RF_foot_pos_deviation, my_config["touched"])
+            elif self.action_index == 1:
+                self.target.check_marker_touched(LF_foot_pos_deviation, my_config["touched"])
             self.target.visualize()
         ### Rn ###
         # joint velocity(w2)
@@ -414,31 +410,18 @@ class AnymalCEnv(DirectRLEnv):
         # termination penalty(w7)
         died = torch.any(torch.max(torch.norm(net_contact_forces[:, :, self._BASE], dim=-1), dim=1)[0] > 1.0, dim=1)
         
-        rewards = {
-                "Re": self.cfg.w1* torch.exp(-(foot_pos_deviation/self.cfg.sigma))* self.step_dt,
+        if self.action_index == 0:
+            rewards = {
+                "Re": self.cfg.w1* torch.exp(-(RF_foot_pos_deviation/self.cfg.sigma))* self.step_dt,
+                "Rm": self.cfg.w1* torch.exp(-(mass_center_deviation/self.cfg.sigma))* self.step_dt,
+                "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt, 
+            }
+        elif self.action_index == 1:
+            rewards = {
+                "Re": self.cfg.w1* torch.exp(-(LF_foot_pos_deviation/self.cfg.sigma))* self.step_dt,
                 "Rm": self.cfg.w1* torch.exp(-(mass_center_deviation/self.cfg.sigma))* self.step_dt,
                 "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt,
             }
-        
-        # if self.action_index == 0:
-        #     # tensor_zero = torch.zeros(4096)
-        #     # tensor_gpu = tensor_zero.to('cuda:0')
-        #     # tensor_negative_ten = torch.full((4096,), -10)
-        #     # tensor_gpu_1 = tensor_negative_ten.to('cuda:0')
-        #     rewards = {
-        #         # "Re" : tensor_gpu,
-        #         # "Rm" : tensor_gpu,
-        #         # "Rn" : tensor_gpu_1,
-        #         "Re": self.cfg.w1* torch.exp(-(RF_foot_pos_deviation/self.cfg.sigma))* self.step_dt,
-        #         "Rm": self.cfg.w1* torch.exp(-(mass_center_deviation/self.cfg.sigma))* self.step_dt,
-        #         "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt, 
-        #     }
-        # elif self.action_index == 1:
-        #     rewards = {
-        #         "Re": self.cfg.w1* torch.exp(-(LF_foot_pos_deviation/self.cfg.sigma))* self.step_dt,
-        #         "Rm": self.cfg.w1* torch.exp(-(mass_center_deviation/self.cfg.sigma))* self.step_dt,
-        #         "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt,
-        #     }
 
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
         # Logging
@@ -469,9 +452,8 @@ class AnymalCEnv(DirectRLEnv):
         ### add
         # self._actions[env_ids] = 0.0
         self._actions[env_ids] = 0
-        # self._previous_actions[env_ids] = 0.0
-        self._previous_actions[env_ids] = 0
         ###
+        self._previous_actions[env_ids] = 0.0
         # Sample new commands
         # first curriculum
         x = np.random.uniform(self.x[0], self.x[1]+2*self.ex)

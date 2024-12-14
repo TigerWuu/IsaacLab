@@ -35,6 +35,10 @@ class AnymalCFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         use_clipped_value_loss=True,
         clip_param=0.2,
         entropy_coef=0.01,
+        ### add
+        # clip_param=0.5,
+        # entropy_coef=0.1,
+        ###
         num_learning_epochs=5,
         num_mini_batches=4,
         learning_rate=1.0e-3,
