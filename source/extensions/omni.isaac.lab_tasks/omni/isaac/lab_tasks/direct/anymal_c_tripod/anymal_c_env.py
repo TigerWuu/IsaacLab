@@ -26,21 +26,21 @@ from .targetVisualization import targetVisualization as targetVis
 import wandb
 
 my_config = {
-    "run_id": "Quadruped_tripod_curri-01-xyz_resampled-6s_AvgRe-13_frame-base_friction-1-my-box_buffer-1000_RF-3",
-    "epoch_num": 12000,
-    "description": "0 to 12000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
+    "run_id": "Quadruped_tripod_curri-01-xyz_resampled-6s_AvgRe-13_frame-base_friction-1-my-box_buffer-1000_LF-3-resume",
+    "epoch_num": 8000,
+    "description": "0 to 8000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
     "ex-max" : 0.7,
     "ex-step" : 0.1,
     "ex-threshold" : 13,
     "resample-time" : 6,
     # "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 0.4]],
-    "xyz0": [[0.6, 0.8], [-0.3, 0.1], [0.0, 0.4]],
+    "xyz0": [[0.6, 0.8], [-0.1, 0.3], [0.0, 0.4]],
     # "xyz0": [[0.7, 0.7], [0.5, 0.5], [0.5, 0.5]], # test box
     # "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 1.2]], # paper box
-    "ex": 0.0,
+    "ex": 0.5,
     "touched": 0.08, # touched threshold
-    "foot" : "RF_FOOT", # RF_FOOT, LF_FOOT
-    "wandb" : True,
+    "foot" : "LF_FOOT", # RF_FOOT, LF_FOOT
+    "wandb" : False,
 }
 
 class AnymalCEnv(DirectRLEnv):
