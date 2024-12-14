@@ -42,7 +42,7 @@ from omni.isaac.lab.envs import (
 from omni.isaac.lab_tasks.direct.anymal_c_hrl.agents.rsl_rl_ppo_cfg import AnymalCFlatPPORunnerCfg, AnymalCRoughPPORunnerCfg
 
 my_config = {
-    "run_id": "hrl_1214_1000iter_HighAction&CenterMass_obs_0.5box",
+    "run_id": "Quadruped_hrl_1213_4",
     "epoch_num": 1000,
     "description": "0 to 1000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
     "ex-max" : 0.7,
@@ -50,8 +50,7 @@ my_config = {
     "ex-threshold" : 15,
     "resample-time" : 6,
     # "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 0.4]],
-    "xyz0": [[0.6, 0.8], [-0.5, 0.5], [0.0, 0.4]],
-    # "xyz0": [[0.6, 0.6], [-0.6, -0.6], [0.2, 0.2]], # for play.py
+    "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 0.4]],
     # "xyz0": [[0.7, 0.7], [0.5, 0.5], [0.5, 0.5]], # test box
     # "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 1.2]], # paper box
     "ex": 0.4,
@@ -73,7 +72,7 @@ class AnymalCEnv(DirectRLEnv):
         # Joint position command (deviation from default joint positions)
         # self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
         ### add
-        # discrete
+        # 改為discrete動作空間
         self.action_space = gym.spaces.Discrete(2) ### 2o4
         ###
         self._actions = torch.zeros(
@@ -92,7 +91,6 @@ class AnymalCEnv(DirectRLEnv):
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
             for key in [
                 "Re",
-                "Rm",
                 "Rn",
             ]
         }
@@ -113,7 +111,7 @@ class AnymalCEnv(DirectRLEnv):
         # self.root_position = self._robot.data.default_root_state
         # self.root_position[:, :3] += self._terrain.env_origins
         # self.root_position = self._robot.data.body_pos_w[:, self._BASE[0], :3]
-        self.root_position = self._terrain.env_origins[:] # wtf += will affect the default_root_state , array shallow copy?
+        self.root_position = self._terrain.env_origins[:] ### not sure ?# wtf += will affect the default_root_state , array shallow copy?
         # for curriculum learning
         # (tiger) for curriculum learning
         self.x = my_config["xyz0"][0]
@@ -133,7 +131,6 @@ class AnymalCEnv(DirectRLEnv):
 
         ### add for hrl
         self.get_low_level_policy()
-        self.high_level_actions = torch.zeros(self.num_envs, 1 , device=self.device)
         ###
 
         if my_config["wandb"]:
@@ -152,6 +149,7 @@ class AnymalCEnv(DirectRLEnv):
         # args_cli.video_length = 200
         # args_cli.video_interval = 2000
         args_cli.num_envs = 4096
+        args_cli.task = "Isaac-Velocity-Flat-Anymal-C-Direct-hrl-low"
         args_cli.seed = 42
         args_cli.max_iterations = 500
         args_cli.device = "cuda"
@@ -177,23 +175,15 @@ class AnymalCEnv(DirectRLEnv):
 
         # create runner from rsl-rl
         # runner = OnPolicyRunner(agent_cfg.to_dict(), device=agent_cfg.device)
-        runner_r = LoadPPOModel(agent_cfg.to_dict(), device=agent_cfg.device)
-        runner_l = LoadPPOModel(agent_cfg.to_dict(), device=agent_cfg.device)
+        runner = LoadPPOModel(agent_cfg.to_dict(), device=agent_cfg.device)
         
         ### multi-path
         self.low_level_policies = []
-        
-        # 2o4
-        runner_r.load(resume_paths[0])
-        runner_r.eval_mode()
-        policy_r = runner_r.get_inference_policy()
-        self.low_level_policies.append(policy_r)
-
-        runner_l.load(resume_paths[1])
-        runner_l.eval_mode()
-        policy_l = runner_l.get_inference_policy()
-        self.low_level_policies.append(policy_l)
-        
+        for i in range(2): ### 2o4
+            runner.load(resume_paths[i])
+            runner.eval_mode()
+            policy = runner.get_inference_policy()
+            self.low_level_policies.append(policy)
         ###
 
     ###
@@ -223,7 +213,6 @@ class AnymalCEnv(DirectRLEnv):
         for i in range(self.num_envs):
             obs = self.observations["policy"][i]
             self.action_index = torch.argmax(actions[i]).item()
-            self.high_level_actions[i] = self.action_index
             # print("action_index : ", action_index)
             low_level_action = self.low_level_policies[self.action_index](obs) 
             self.low_level_actions[i] = low_level_action
@@ -233,7 +222,8 @@ class AnymalCEnv(DirectRLEnv):
             if i == 100 or i == 200 or i == 300 or i == 400:
                 wandb.log({
                     "env_id": i,
-                    "action_index": self.action_index
+                    "action_index": self.action_index,
+                    "low_level_action": low_level_action.cpu().numpy().tolist()
                 })
 
         # low_level_action = self.low_level_policies[action_index](self.observations) # how to setup discrete action (might be direct_rl_env?)
@@ -283,26 +273,11 @@ class AnymalCEnv(DirectRLEnv):
             ],
             dim=-1,
         )
-        ### add for high level policy
-        # obs_RF_FOOT, _ = self._robot.find_bodies("RF_FOOT")
-        # obs_LF_FOOT, _ = self._robot.find_bodies("LF_FOOT")
-        RF_FOOT_pos_base = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self._robot.data.body_pos_w[:, self._BASE[0], :3]
-        LF_FOOT_pos_base = self._robot.data.body_pos_w[:, self._LF_FOOT[0], :3] - self._robot.data.body_pos_w[:, self._BASE[0], :3]
-        mass_center_base = self._robot.data.body_pos_w[:, self._BASE[0], :3]
-        mass_center_deviation = torch.norm((mass_center_base-self.root_position), dim=1)
-
-        ### mass_center_deviation [4096] --> [4096,1]
-        mass_center_deviation = mass_center_deviation.unsqueeze(1)
-        print("mass_center_deviation shape:", mass_center_deviation.shape)
-        print("LF_FOOT_pos_base shape:", LF_FOOT_pos_base.shape)
-        print("self.high_level_actions shape:", self.high_level_actions.shape)
-        print("self._commands_base shape:", self._commands_base.shape)
         
         obs_h = torch.cat(
             [
                 tensor
                 for tensor in (
-
                     self._robot.data.root_lin_vel_b,
                     self._robot.data.root_ang_vel_b,
                     self._robot.data.projected_gravity_b,
@@ -311,14 +286,8 @@ class AnymalCEnv(DirectRLEnv):
                     self._robot.data.joint_pos,
                     self._robot.data.joint_vel,
                     # height_data,
-                    # self._actions, 
-                    # self.low_level_actions,
-                    self.high_level_actions,
-
-                    ### add for high level policy
-                    mass_center_deviation,
-                    LF_FOOT_pos_base,
-                    RF_FOOT_pos_base,
+                    # self._actions, ### add (delete)
+                    self.low_level_actions,
                 )
                 if tensor is not None
             ],
@@ -326,7 +295,6 @@ class AnymalCEnv(DirectRLEnv):
         )
         self.observations = {"policy": obs}
         obs_h_return  = {"policy": obs_h}
-        ###
         return obs_h_return
 
     def _get_rewards(self) -> torch.Tensor:
@@ -363,9 +331,6 @@ class AnymalCEnv(DirectRLEnv):
       
         LF_FOOT_pos_base = self._robot.data.body_pos_w[:, self._LF_FOOT[0], :3] - self._robot.data.body_pos_w[:, self._BASE[0], :3]
         LF_foot_pos_deviation = torch.norm((LF_FOOT_pos_base-self._commands_base[:, :3]), dim=1)
-
-        mass_center_base = self._robot.data.body_pos_w[:, self._BASE[0], :3]
-        mass_center_deviation = torch.norm((mass_center_base-self.root_position), dim=1)
 
         #### in root frame ####
         
@@ -413,20 +378,29 @@ class AnymalCEnv(DirectRLEnv):
         if self.action_index == 0:
             rewards = {
                 "Re": self.cfg.w1* torch.exp(-(RF_foot_pos_deviation/self.cfg.sigma))* self.step_dt,
-                "Rm": self.cfg.w1* torch.exp(-(mass_center_deviation/self.cfg.sigma))* self.step_dt,
                 "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt, 
             }
         elif self.action_index == 1:
             rewards = {
                 "Re": self.cfg.w1* torch.exp(-(LF_foot_pos_deviation/self.cfg.sigma))* self.step_dt,
-                "Rm": self.cfg.w1* torch.exp(-(mass_center_deviation/self.cfg.sigma))* self.step_dt,
                 "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt,
             }
-
+        ### for high level policy
+        # rewards = {
+        #     "Rm": self.cfg.w1* torch.exp(-(mass_deviation/self.cfg.sigma))* self.step_dt,
+        #     "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt, 
+        # }
+        ###
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
         # Logging
         for key, value in rewards.items():
             self._episode_sums[key] += value
+
+        # wandb.log({
+        #     "reward": reward,
+        #     "Re": rewards["Re"],
+        #     "Rn": rewards["Rn"]
+        #     })
 
         return reward
 

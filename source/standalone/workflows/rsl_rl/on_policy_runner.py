@@ -68,13 +68,9 @@ class OnPolicyRunner:
 
     # def save_environment(self, env, step):
     def save_environment(self, obs):
-        """
-        儲存當前環境的狀態。
-        """
-        # observations, _ = self.env.get_observations()  # 獲取當前的環境觀察
-        # obs = observations.cpu().numpy()  # 轉換成 NumPy 陣列，方便儲存
-        
-        # 儲存檔案路徑，可以根據步數命名
+        # observations, _ = self.env.get_observations()  
+        # obs = observations.cpu().numpy()  
+
         save_dir = "./saved_obs"
         os.makedirs(save_dir, exist_ok=True)
 
