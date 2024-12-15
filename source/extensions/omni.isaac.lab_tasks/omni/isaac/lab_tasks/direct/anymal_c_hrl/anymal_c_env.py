@@ -42,13 +42,13 @@ from omni.isaac.lab.envs import (
 from omni.isaac.lab_tasks.direct.anymal_c_hrl.agents.rsl_rl_ppo_cfg import AnymalCFlatPPORunnerCfg, AnymalCRoughPPORunnerCfg
 
 my_config = {
-    "run_id": "hrl_1214_1000iter_HighAction&CenterMass_obs_0.2+0.3box_update",
+    "run_id": "hrl_1214_1000iter_HighAction&CenterMass_obs_0.2+0.3box_bigger_update",
     # "run_id": "test_3",
     "epoch_num": 1000,
     "description": "0 to 1000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
     "ex-max" : 0.7,
     "ex-step" : 0.1,
-    "ex-threshold" : 15,
+    "ex-threshold" : 13,
     "resample-time" : 6,
     # "xyz0": [[0.6, 0.8], [-0.2, -0.2], [0.0, 0.4]],
     "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 0.4]],
@@ -59,8 +59,8 @@ my_config = {
     "touched": 0.08, # touched threshold
     # "foot" : "RF_FOOT", 
     # "foot" : "RF_FOOT", "LF_FOOT"
-    "wandb" : True,
-    "target_visual" : False,
+    "wandb" : False,
+    "target_visual" : True,
 }
 
 class AnymalCEnv(DirectRLEnv):
@@ -220,6 +220,7 @@ class AnymalCEnv(DirectRLEnv):
 
     def _pre_physics_step(self, actions: torch.Tensor):
         # print("observation : ", self.observations.shape)
+        action_index_add = 0
         for i in range(self.num_envs):
             obs = self.observations["policy"][i]
             self.action_index = torch.argmax(actions[i]).item()
@@ -230,11 +231,13 @@ class AnymalCEnv(DirectRLEnv):
             # low_level_actions = torch.cat((low_level_actions, low_level_action), dim=0)
 
             # Log to W&B
-            if i == 100 or i == 200 or i == 300 or i == 400:
-                wandb.log({
-                    # "env_id": i,
-                    "action_index": self.action_index
-                })
+            action_index_add += self.action_index
+
+        # Log to W&B
+        if my_config["wandb"]:
+            wandb.log({
+                "average_action_index": action_index_add/self.num_envs
+            })
 
         # low_level_action = self.low_level_policies[action_index](self.observations) # how to setup discrete action (might be direct_rl_env?)
         # self._actions = self.low_level_actions.clone()
