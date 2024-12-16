@@ -31,15 +31,17 @@ my_config = {
     "description": "0 to 8000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
     "ex-max" : 0.7,
     "ex-step" : 0.1,
-    "ex-threshold" : 13,
+    "ex-threshold" : 15,
     "resample-time" : 6,
     # "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 0.4]],
-    "xyz0": [[0.6, 0.8], [-0.1, 0.3], [0.0, 0.4]],
+    "xyz0": [[0.6, 0.8], [-0.3, 0.1], [0.0, 0.4]],
+    "xyz_near" : [0.7, -0.2, 0.3],
+    "xyz_far" : [1.8, -0.2, 0.8],
     # "xyz0": [[0.7, 0.7], [0.5, 0.5], [0.5, 0.5]], # test box
     # "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 1.2]], # paper box
-    "ex": 0.5,
-    "touched": 0.08, # touched threshold
-    "foot" : "LF_FOOT", # RF_FOOT, LF_FOOT
+    "ex": 0.0,
+    "touched": 0.10, # touched threshold
+    "foot" : "RF_FOOT", # RF_FOOT, LF_FOOT
     "wandb" : False,
 }
 
@@ -101,7 +103,7 @@ class AnymalCEnv(DirectRLEnv):
 
 
         # for marker visualization
-        self.target = targetVis(scale=0.03, num_envs=self.num_envs)
+        self.target = targetVis(scale=0.05, num_envs=self.num_envs)
 
         # for resampling target points
         self.resampled = torch.zeros(self.num_envs)
@@ -207,6 +209,8 @@ class AnymalCEnv(DirectRLEnv):
             else:
                 z = np.random.uniform(self.z[0], 1.2)
             self._commands[resampled_ids] = torch.tensor([x, y, z], device=self.device)
+            # test
+            # self._commands[resampled_ids] = torch.tensor(my_config["xyz_far"], device=self.device)
         
         
         ### Re ###
@@ -301,6 +305,9 @@ class AnymalCEnv(DirectRLEnv):
             z = np.random.uniform(self.z[0], 1.2)
 
         self._commands[env_ids] = torch.tensor([x, y, z], device=self.device)
+
+        # test
+        # self._commands[env_ids] = torch.tensor(my_config["xyz_near"], device=self.device)
         # target visualization
         self.target.set_marker_position(self._commands, self.root_position)
         self.target.reset_indices(env_ids)
