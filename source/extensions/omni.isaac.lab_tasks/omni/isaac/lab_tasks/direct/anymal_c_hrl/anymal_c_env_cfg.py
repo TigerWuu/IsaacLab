@@ -125,6 +125,8 @@ class AnymalCFlatEnvCfg(DirectRLEnvCfg):
     w5 = -1e-2
     w6 = -2
     w7 = -80
+    ### test
+    w8 = -1
 
 
 @configclass
