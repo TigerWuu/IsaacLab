@@ -1,0 +1,171 @@
+--- git status ---
+On branch tiger
+Your branch is ahead of 'origin/tiger' by 1 commit.
+  (use "git push" to publish your local commits)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/anymal_c_tripod/anymal_c_env.py
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/anymal_c_tripod/anymal_c_env.py b/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/anymal_c_tripod/anymal_c_env.py
+index a244ddf2..f9f09f2a 100644
+--- a/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/anymal_c_tripod/anymal_c_env.py
++++ b/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/anymal_c_tripod/anymal_c_env.py
+@@ -26,14 +26,15 @@ from .targetVisualization import targetVisualization as targetVis
+ import wandb
+ 
+ my_config = {
+-    "run_id": "Quadruped_tripod_curri-01-xyz_AvgRe-13_frame-root_friction-1-my-box_buffer-1000",
+-    "epoch_num": 8000,
+-    "description": "0 to 8000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
++    "run_id": "Quadruped_tripod_curri-01-xyz_resampled-6s_AvgRe-13_frame-base_friction-1-my-box_buffer-1000",
++    "epoch_num": 12000,
++    "description": "0 to 12000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
+     "ex-max" : 0.7,
+     "ex-step" : 0.1,
+     "ex-threshold" : 13,
+     "resample-time" : 6,
+     "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 0.4]],
++    "ex": 0.0,
+ }
+ 
+ class AnymalCEnv(DirectRLEnv):
+@@ -80,10 +81,10 @@ class AnymalCEnv(DirectRLEnv):
+         # print("root_position : ", self.root_position)
+ 
+         # (tiger) for curriculum learning
+-        self.x = [0.6, 0.8]
+-        self.y = [-0.2, 0.2]
+-        self.z = [0.0, 0.4]
+-        self.ex = 0.0
++        self.x = my_config["xyz0"][0]
++        self.y = my_config["xyz0"][1]
++        self.z = my_config["xyz0"][2]
++        self.ex = my_config["ex"]
+         
+         # (chang)for curriculum learning
+         # self.x = [0.6, 0.8]
+@@ -153,7 +154,6 @@ class AnymalCEnv(DirectRLEnv):
+         self._previous_actions = self._actions.clone()
+         # print("root_pos_world : ", self.root_position)
+         # print("base_pos_world : ", self._robot.data.body_pos_w[:, self._BASE[0], :3])
+-        # base_pos_root = self._robot.data.body_pos_w[:, self._BASE[0], :3] - self.root_position[:, :3]
+         # print("base_pos_root : ", base_pos_root)
+         
+         # print("root_position : ", self._robot.data.root_pos_w[:, :3])
+@@ -162,7 +162,8 @@ class AnymalCEnv(DirectRLEnv):
+         # print("command_ : ", self._commands)
+ 
+         #### in base frame ####
+-        # self._commands_base = self._commands - base_pos_root # command : root to base
++        base_pos_root = self._robot.data.body_pos_w[:, self._BASE[0], :3] - self.root_position[:, :3]
++        self._commands_base = self._commands - base_pos_root # command : root to base
+         
+         height_data = None
+         if isinstance(self.cfg, AnymalCRoughEnvCfg):
+@@ -176,8 +177,8 @@ class AnymalCEnv(DirectRLEnv):
+                     self._robot.data.root_lin_vel_b,
+                     self._robot.data.root_ang_vel_b,
+                     self._robot.data.projected_gravity_b,
+-                    # self._commands_base, # base frame 
+-                    self._commands, # root frame
++                    self._commands_base, # base frame 
++                    # self._commands, # root frame
+                     self._robot.data.joint_pos,
+                     self._robot.data.joint_vel,
+                     # height_data,
+@@ -191,27 +192,27 @@ class AnymalCEnv(DirectRLEnv):
+         return observations
+ 
+     def _get_rewards(self) -> torch.Tensor:
+-        # # resample the target point every half episode
+-        # resampled_ids_cand = torch.where(self.episode_length_buf >= self.max_episode_length/2, 1.0, 0).nonzero()
+-        # # print("resampled_ids : ", resampled_ids)
+-        # resampled_ids = []
++        # resample the target point every half episode
++        resampled_ids_cand = torch.where(self.episode_length_buf >= self.max_episode_length/2, 1.0, 0).nonzero()
++        # print("resampled_ids : ", resampled_ids)
++        resampled_ids = []
+         
+-        # for i in resampled_ids_cand:
+-        #     if self.resampled[i.item()] == 0:
+-        #         self.resampled[i.item()] = 1
+-        #         resampled_ids.append(i.item())
++        for i in resampled_ids_cand:
++            if self.resampled[i.item()] == 0:
++                self.resampled[i.item()] = 1
++                resampled_ids.append(i.item())
+         
+-        # if len(resampled_ids) > 0:
+-        #     resampled_ids = torch.tensor(resampled_ids, device=self.device)
+-        #     x = np.random.uniform(self.x[0], self.x[1]+2*self.ex)
+-        #     y = np.random.uniform(self.y[0]-self.ex, self.y[1]+self.ex)
+-        #     if self.z[1]<1.1:
+-        #         z = np.random.uniform(self.z[0], self.z[1]+2*self.ex)
+-        #     else:
+-        #         z = np.random.uniform(self.z[0], self.z[1])
+-        #     self._commands[resampled_ids] = torch.tensor([x, y, z], device=self.device)
+-        #     # self.target.set_marker_position(self._commands, self.root_position)
+-        #     # self.target.visualize()
++        if len(resampled_ids) > 0:
++            resampled_ids = torch.tensor(resampled_ids, device=self.device)
++            x = np.random.uniform(self.x[0], self.x[1]+2*self.ex)
++            y = np.random.uniform(self.y[0]-self.ex, self.y[1]+self.ex)
++            if self.z[1]<1.1:
++                z = np.random.uniform(self.z[0], self.z[1]+2*self.ex)
++            else:
++                z = np.random.uniform(self.z[0], self.z[1])
++            self._commands[resampled_ids] = torch.tensor([x, y, z], device=self.device)
++            self.target.set_marker_position(self._commands, self.root_position)
++            self.target.visualize()
+         
+         ### Re ###
+         # foot position(w1)
+@@ -219,13 +220,13 @@ class AnymalCEnv(DirectRLEnv):
+         
+ 
+         #### in base frame ####
+-        # RF_FOOT_pos_base = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self._robot.data.body_pos_w[:, self._BASE[0], :3]
+-        # foot_pos_deviation = torch.norm((RF_FOOT_pos_base-self._commands_base[:, :3]), dim=1)
++        RF_FOOT_pos_base = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self._robot.data.body_pos_w[:, self._BASE[0], :3]
++        foot_pos_deviation = torch.norm((RF_FOOT_pos_base-self._commands_base[:, :3]), dim=1)
+         
+         #### in root frame ####
+-        # print("RF_FOOT : ", self._RF_FOOT)
+-        RF_FOOT_pos_root = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self.root_position[:, :3]
+-        foot_pos_deviation = torch.norm((RF_FOOT_pos_root-self._commands[:, :3]), dim=1)
++        # RF_FOOT_pos_root = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self.root_position[:, :3]
++        # foot_pos_deviation = torch.norm((RF_FOOT_pos_root-self._commands[:, :3]), dim=1)
++        
+         # print("foot_pos_deviation : ", foot_pos_deviation)
+         # print("RF_FOOT_pos_root : ", RF_FOOT_pos_root)
+         ### Rn ###
+@@ -275,9 +276,9 @@ class AnymalCEnv(DirectRLEnv):
+         return died, time_out
+ 
+     def _reset_idx(self, env_ids: torch.Tensor | None):
+-        # # for resampling target points
+-        # for i in env_ids:
+-        #     self.resampled[i.item()] = 0
++        # for resampling target points
++        for i in env_ids:
++            self.resampled[i.item()] = 0
+ 
+         if env_ids is None or len(env_ids) == self.num_envs:
+             env_ids = self._robot._ALL_INDICES
+@@ -300,8 +301,8 @@ class AnymalCEnv(DirectRLEnv):
+         # self._commands[env_ids] = torch.zeros_like(self._commands[env_ids]).uniform_(0.3, 0.6)
+         self._commands[env_ids] = torch.tensor([x, y, z], device=self.device)
+         # target visualization
+-        # self.target.set_marker_position(self._commands, self.root_position)
+-        # self.target.visualize()
++        self.target.set_marker_position(self._commands, self.root_position)
++        self.target.visualize()
+ 
+         # self.target = targetVis(self._commands[env_ids], self.root_position[env_ids],scale=0.03, num_envs=self.num_envs)
+         # self.target.visualize()

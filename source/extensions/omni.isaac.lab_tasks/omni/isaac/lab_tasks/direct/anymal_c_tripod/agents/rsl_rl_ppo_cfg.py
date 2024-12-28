@@ -14,6 +14,11 @@ from omni.isaac.lab_tasks.utils.wrappers.rsl_rl import (
 
 @configclass
 class AnymalCFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
+    ### test
+    # resume = True
+    # load_run = "right_test" # The run directory to load. Default is ".*" (all).
+    # load_checkpoint = "model_right.pt"
+    ###
     num_steps_per_env = 24
     max_iterations = 500
     save_interval = 100
@@ -23,6 +28,8 @@ class AnymalCFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         init_noise_std=1.0,
         actor_hidden_dims=[128, 128, 128],
         critic_hidden_dims=[128, 128, 128],
+        # actor_hidden_dims=[128, 64, 32],
+        # critic_hidden_dims=[128, 64, 32],
         activation="elu",
     )
     algorithm = RslRlPpoAlgorithmCfg(

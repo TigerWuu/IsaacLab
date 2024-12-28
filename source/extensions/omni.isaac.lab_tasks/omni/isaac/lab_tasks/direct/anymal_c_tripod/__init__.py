@@ -18,6 +18,7 @@ from . import agents
 gym.register(
     id="Isaac-Velocity-Flat-Anymal-C-Direct-tripod-v0",
     entry_point=f"{__name__}.anymal_c_env:AnymalCEnv",
+    # entry_point=f"{__name__}.benchmark:AnymalCEnv", # for benchmarking
     disable_env_checker=True,
     kwargs={
         "env_cfg_entry_point": f"{__name__}.anymal_c_env_cfg:AnymalCFlatEnvCfg",

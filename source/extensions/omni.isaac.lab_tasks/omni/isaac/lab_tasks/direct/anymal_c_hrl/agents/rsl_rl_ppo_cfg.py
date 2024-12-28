@@ -15,13 +15,14 @@ from omni.isaac.lab_tasks.utils.wrappers.rsl_rl import (
 @configclass
 class AnymalCFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     ### add
-    load_run = ".*" # The run directory to load. Default is ".*" (all).
+    # resume = True
+    load_run = ".*"  # The run directory to load. Default is ".*" (all).
     load_checkpoint = "model_.*.pt" # The checkpoint file to load. Default is ``"model_.*.pt"`` (all).
     ###
     num_steps_per_env = 24
     max_iterations = 500
     save_interval = 100
-    experiment_name = "anymal_c_flat_direct_tripod_hrl"
+    experiment_name = "anymal_c_flat_direct_hrl"
     empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,
@@ -48,13 +49,13 @@ class AnymalCFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
 @configclass
 class AnymalCRoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     ### add
-    load_run = ".*" # The run directory to load. Default is ".*" (all).
-    load_checkpoint = "model_.*.pt" # The checkpoint file to load. Default is ``"model_.*.pt"`` (all).
+    # load_run = ".*" # The run directory to load. Default is ".*" (all).
+    # load_checkpoint = "model_.*.pt" # The checkpoint file to load. Default is ``"model_.*.pt"`` (all).
     ###
     num_steps_per_env = 24
     max_iterations = 1500
     save_interval = 100
-    experiment_name = "anymal_c_rough_direct_tripod_hrl"
+    experiment_name = "anymal_c_rough_direct_hrl"
     empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,

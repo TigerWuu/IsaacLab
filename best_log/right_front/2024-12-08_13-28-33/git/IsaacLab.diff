@@ -1,0 +1,97 @@
+--- git status ---
+On branch tiger
+Your branch is ahead of 'origin/tiger' by 1 commit.
+  (use "git push" to publish your local commits)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/anymal_c_tripod/anymal_c_env.py
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/anymal_c_tripod/anymal_c_env.py b/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/anymal_c_tripod/anymal_c_env.py
+index a244ddf2..47a8758e 100644
+--- a/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/anymal_c_tripod/anymal_c_env.py
++++ b/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/direct/anymal_c_tripod/anymal_c_env.py
+@@ -26,13 +26,13 @@ from .targetVisualization import targetVisualization as targetVis
+ import wandb
+ 
+ my_config = {
+-    "run_id": "Quadruped_tripod_curri-01-xyz_AvgRe-13_frame-root_friction-1-my-box_buffer-1000",
+-    "epoch_num": 8000,
+-    "description": "0 to 8000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
++    "run_id": "Quadruped_tripod_curri-01-xyz_AvgRe-13_frame-base_friction-1-my-box_buffer-1000-2",
++    "epoch_num": 12000,
++    "description": "0 to 12000 epochs, command curriculum in x and y axis, change root frame position to (x,y,z), friction 1, average reward 13, clear buffer",
+     "ex-max" : 0.7,
+     "ex-step" : 0.1,
+     "ex-threshold" : 13,
+-    "resample-time" : 6,
++    "resample-time" : 0,
+     "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 0.4]],
+ }
+ 
+@@ -80,9 +80,9 @@ class AnymalCEnv(DirectRLEnv):
+         # print("root_position : ", self.root_position)
+ 
+         # (tiger) for curriculum learning
+-        self.x = [0.6, 0.8]
+-        self.y = [-0.2, 0.2]
+-        self.z = [0.0, 0.4]
++        self.x = my_config["xyz0"][0]
++        self.y = my_config["xyz0"][1]
++        self.z = my_config["xyz0"][2]
+         self.ex = 0.0
+         
+         # (chang)for curriculum learning
+@@ -153,7 +153,6 @@ class AnymalCEnv(DirectRLEnv):
+         self._previous_actions = self._actions.clone()
+         # print("root_pos_world : ", self.root_position)
+         # print("base_pos_world : ", self._robot.data.body_pos_w[:, self._BASE[0], :3])
+-        # base_pos_root = self._robot.data.body_pos_w[:, self._BASE[0], :3] - self.root_position[:, :3]
+         # print("base_pos_root : ", base_pos_root)
+         
+         # print("root_position : ", self._robot.data.root_pos_w[:, :3])
+@@ -162,7 +161,8 @@ class AnymalCEnv(DirectRLEnv):
+         # print("command_ : ", self._commands)
+ 
+         #### in base frame ####
+-        # self._commands_base = self._commands - base_pos_root # command : root to base
++        base_pos_root = self._robot.data.body_pos_w[:, self._BASE[0], :3] - self.root_position[:, :3]
++        self._commands_base = self._commands - base_pos_root # command : root to base
+         
+         height_data = None
+         if isinstance(self.cfg, AnymalCRoughEnvCfg):
+@@ -176,8 +176,8 @@ class AnymalCEnv(DirectRLEnv):
+                     self._robot.data.root_lin_vel_b,
+                     self._robot.data.root_ang_vel_b,
+                     self._robot.data.projected_gravity_b,
+-                    # self._commands_base, # base frame 
+-                    self._commands, # root frame
++                    self._commands_base, # base frame 
++                    # self._commands, # root frame
+                     self._robot.data.joint_pos,
+                     self._robot.data.joint_vel,
+                     # height_data,
+@@ -219,13 +219,13 @@ class AnymalCEnv(DirectRLEnv):
+         
+ 
+         #### in base frame ####
+-        # RF_FOOT_pos_base = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self._robot.data.body_pos_w[:, self._BASE[0], :3]
+-        # foot_pos_deviation = torch.norm((RF_FOOT_pos_base-self._commands_base[:, :3]), dim=1)
++        RF_FOOT_pos_base = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self._robot.data.body_pos_w[:, self._BASE[0], :3]
++        foot_pos_deviation = torch.norm((RF_FOOT_pos_base-self._commands_base[:, :3]), dim=1)
+         
+         #### in root frame ####
+-        # print("RF_FOOT : ", self._RF_FOOT)
+-        RF_FOOT_pos_root = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self.root_position[:, :3]
+-        foot_pos_deviation = torch.norm((RF_FOOT_pos_root-self._commands[:, :3]), dim=1)
++        # RF_FOOT_pos_root = self._robot.data.body_pos_w[:, self._RF_FOOT[0], :3] - self.root_position[:, :3]
++        # foot_pos_deviation = torch.norm((RF_FOOT_pos_root-self._commands[:, :3]), dim=1)
++        
+         # print("foot_pos_deviation : ", foot_pos_deviation)
+         # print("RF_FOOT_pos_root : ", RF_FOOT_pos_root)
+         ### Rn ###

@@ -55,14 +55,15 @@ class EventCfg:
 @configclass
 class AnymalCFlatEnvCfg(DirectRLEnvCfg):
     # env
-    episode_length_s = 12.0
+    episode_length_s = 6.0
     decimation = 4
     action_scale = 0.5
     # action_space = 4 
     ### add
-    action_space = Discrete(2)
+    action_space = Discrete(2) ### 2o4
     ###
-    observation_space = 48
+    # observation_space = 48
+    observation_space = 37
     state_space = 0
 
     # simulation
