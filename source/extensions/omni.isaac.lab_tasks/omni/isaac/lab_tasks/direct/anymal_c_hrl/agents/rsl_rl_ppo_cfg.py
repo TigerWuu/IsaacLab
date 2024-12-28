@@ -53,8 +53,8 @@ class AnymalCFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
 @configclass
 class AnymalCRoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     ### add
-    # load_run = ".*" # The run directory to load. Default is ".*" (all).
-    # load_checkpoint = "model_.*.pt" # The checkpoint file to load. Default is ``"model_.*.pt"`` (all).
+    load_run = "2024-12-16_20-22-49" # The run directory to load. Default is ".*" (all).
+    load_checkpoint = "model_999.pt" # The checkpoint file to load. Default is ``"model_.*.pt"`` (all).
     ###
     num_steps_per_env = 24
     max_iterations = 1500

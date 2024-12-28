@@ -16,8 +16,8 @@ from omni.isaac.lab_tasks.utils.wrappers.rsl_rl import (
 class AnymalCFlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     ### test
     # resume = True
-    # load_run = "right_test" # The run directory to load. Default is ".*" (all).
-    # load_checkpoint = "model_right.pt"
+    load_run = "right_test" # The run directory to load. Default is ".*" (all).
+    load_checkpoint = "model_right.pt"
     ###
     num_steps_per_env = 24
     max_iterations = 500
