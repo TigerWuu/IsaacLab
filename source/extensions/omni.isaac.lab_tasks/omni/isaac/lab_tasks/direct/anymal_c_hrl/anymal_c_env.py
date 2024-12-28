@@ -41,6 +41,21 @@ from omni.isaac.lab.envs import (
 ### very ugly code..., cause I dont know how to use the decorator 
 from omni.isaac.lab_tasks.direct.anymal_c_hrl.agents.rsl_rl_ppo_cfg import AnymalCFlatPPORunnerCfg, AnymalCRoughPPORunnerCfg
 
+### test benchmark
+import time
+import csv
+
+# # Create a directory for saving results
+# os.makedirs("results", exist_ok=True)
+# execution_time_file = "./results/results_hrl.csv"
+
+# # Write headers to the file if it doesn't exist
+# if not os.path.exists(execution_time_file):
+#     with open(execution_time_file, mode='w', newline='') as file:
+#         writer = csv.writer(file)
+#         writer.writerow(["Exacution_Time", "Avg_Time"])
+
+
 my_config = {
     "run_id": "Quadruped_hrl_mod_obs-runner-better_left-3-resume-3",
     "epoch_num": 1000,
@@ -50,15 +65,13 @@ my_config = {
     "ex-threshold" : 15,
     "resample-time" : 6,
     # "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 0.4]],
-    "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 0.4]],
+    "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 1.2]],
     "xyz_l" : [1.3, 0.6, 1.0],
     "xyz_r" : [1.3, -0.6, 1.0],
     # "xyz0": [[0.7, 0.7], [0.5, 0.5], [0.5, 0.5]], # test box
     # "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 1.2]], # paper box
     "ex": 0.5,
-    "touched": 0.1, # touched threshold
-    # "foot" : "RF_FOOT", 
-    # "foot" : "RF_FOOT", "LF_FOOT"
+    "touched": 0.08, # touched threshold
     "wandb" : False,
 }
 
@@ -122,8 +135,8 @@ class AnymalCEnv(DirectRLEnv):
         self.z = my_config["xyz0"][2]
         self.ex = my_config["ex"]
 
-        # test
-        self.xyz = my_config["xyz_l"]
+        ## test
+        # self.xyz = my_config["xyz_l"]
 
         # for marker visualization
         self.target = targetVis(scale=0.05, num_envs=self.num_envs)
@@ -137,6 +150,14 @@ class AnymalCEnv(DirectRLEnv):
         ### add for hrl
         self.get_low_level_policy()
         ###
+        
+        ## time
+        # self.st = 0
+        # self.et = 0
+        # self.frist_touch_check = True
+        # self.avg_time = []
+        # self.avg10times = 0
+        # self.boxex = 0
 
         if my_config["wandb"]:
             run = wandb.init(
@@ -169,17 +190,9 @@ class AnymalCEnv(DirectRLEnv):
         log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
         log_root_path = os.path.abspath(log_root_path)
     
-        # resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
-        ### multi-path
-        # resume_paths = []
-        # for i in range(4):
-        #     low_policy = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
-        #     resume_paths.append(low_policy)
-        ###
         resume_paths = ["/home/tigerwuu-ncs/IsaacLab/saved_obs/model_right.pt","/home/tigerwuu-ncs/IsaacLab/saved_obs/model_left_resume.pt"]
 
         # create runner from rsl-rl
-        # runner = OnPolicyRunner(agent_cfg.to_dict(), device=agent_cfg.device)
         runner_right = LoadPPOModel(agent_cfg.to_dict(), device=agent_cfg.device)
         runner_left = LoadPPOModel(agent_cfg.to_dict(), device=agent_cfg.device)
         
@@ -235,24 +248,18 @@ class AnymalCEnv(DirectRLEnv):
             self.action_indices[i] = self.action_index
             low_level_action = self.low_level_policies[self.action_index](obs) 
             self.low_level_actions[i] = low_level_action
-            # low_level_actions = torch.cat((low_level_actions, low_level_action), dim=0)
 
             # Log to W&B
             if i == 100 or i == 200 or i == 300 or i == 400:
                 if my_config["wandb"]:
                     wandb.log({
-                        # "env_id": i,
                         "action_index": self.action_index,
-                        # "low_level_action": low_level_action.cpu().numpy().tolist()
                     })
         if my_config["wandb"]:
             index_mean = torch.mean(self.action_indices)
             wandb.log({
                 "action_index_mean": index_mean.item()
             })
-        # print("action_indices : ", self.action_indices)
-        # low_level_action = self.low_level_policies[action_index](self.observations) # how to setup discrete action (might be direct_rl_env?)
-        # self._actions = self.low_level_actions.clone()
 
         self.low_level_processed_actions = self.cfg.action_scale * self.low_level_actions + self._robot.data.default_joint_pos
 
@@ -261,16 +268,7 @@ class AnymalCEnv(DirectRLEnv):
 
     def _get_observations(self) -> dict:
         self._previous_actions = self._actions.clone()
-        # print("root_pos_world : ", self.root_position)
-        # print("base_pos_world : ", self._robot.data.body_pos_w[:, self._BASE[0], :3])
         base_pos_root = self._robot.data.body_pos_w[:, self._BASE[0], :3] - self.root_position[:, :3]
-        # print("base_pos_root : ", base_pos_root)
-        
-        # print("root_position : ", self._robot.data.root_pos_w[:, :3])
-        # print("base_position : ", self._robot.data.body_pos_w[:, self._BASE[0], :3])
-        # print("basePos - rootPos : ", self._robot.data.body_pos_w[:, self._BASE[0], :3] - self._robot.data.root_pos_w[:, :3])
-        # print("command_ : ", self._commands)
-
         #### in base frame ####
         self._commands_base = self._commands - base_pos_root # command : root to base
         
@@ -324,25 +322,25 @@ class AnymalCEnv(DirectRLEnv):
         return obs_h_return
 
     def _get_rewards(self) -> torch.Tensor:
-        # # resample the target point every half episode
-        # resampled_ids_cand = torch.where(self.episode_length_buf >= self.max_episode_length/2, 1.0, 0).nonzero() #.squeeze()
-        # # print("resampled_ids : ", resampled_ids)
-        # resampled_ids = []
-        # for i in resampled_ids_cand:
-        #     if self.resampled[i.item()] == 0:
-        #         self.resampled[i.item()] = 1
-        #         resampled_ids.append(i.item())
+        # resample the target point every half episode
+        resampled_ids_cand = torch.where(self.episode_length_buf >= self.max_episode_length/2, 1.0, 0).nonzero() #.squeeze()
+        # print("resampled_ids : ", resampled_ids)
+        resampled_ids = []
+        for i in resampled_ids_cand:
+            if self.resampled[i.item()] == 0:
+                self.resampled[i.item()] = 1
+                resampled_ids.append(i.item())
         
-        # if len(resampled_ids) > 0:
-        #     resampled_ids = torch.tensor(resampled_ids, device=self.device)
-        #     x = np.random.uniform(self.x[0], self.x[1]+2*self.ex)
-        #     y = np.random.uniform(self.y[0]-self.ex, self.y[1]+self.ex)
-        #     # z = np.random.uniform(self.z[0], self.z[1])
-        #     if self.z[1]+2*self.ex<1.1:
-        #         z = np.random.uniform(self.z[0], self.z[1]+2*self.ex)
-        #     else:
-        #         z = np.random.uniform(self.z[0], 1.2)
-        #     self._commands[resampled_ids] = torch.tensor([x, y, z], device=self.device)
+        if len(resampled_ids) > 0:
+            resampled_ids = torch.tensor(resampled_ids, device=self.device)
+            x = np.random.uniform(self.x[0], self.x[1]+2*self.ex)
+            y = np.random.uniform(self.y[0]-self.ex, self.y[1]+self.ex)
+            # z = np.random.uniform(self.z[0], self.z[1])
+            if self.z[1]+2*self.ex<1.1:
+                z = np.random.uniform(self.z[0], self.z[1]+2*self.ex)
+            else:
+                z = np.random.uniform(self.z[0], 1.2)
+            self._commands[resampled_ids] = torch.tensor([x, y, z], device=self.device)
             
         
         ### Re ###
@@ -371,11 +369,25 @@ class AnymalCEnv(DirectRLEnv):
         # target visualization
         self.target.set_marker_position(self._commands, self.root_position)
         self.target.check_marker_touched(foot_pos_deviation, my_config["touched"])
-        # if self.action_index == 0:
-        #     self.target.check_marker_touched(RF_foot_pos_deviation, my_config["touched"])
-        # elif self.action_index == 1:
-        #     self.target.check_marker_touched(LF_foot_pos_deviation, my_config["touched"])
         self.target.visualize()
+        
+        # test
+        # if foot_pos_deviation < my_config["touched"]:
+        #     if self.frist_touch_check:
+        #         self.et = time.perf_counter()
+        #         exacution_time = self.et-self.st
+        #         print(f'touch time {exacution_time}################################################################')
+        #         self.avg_time.append(exacution_time)
+        #         self.avg10times += 1
+        #         self.frist_touch_check = False
+
+        #         # Save to CSV
+        #         with open(execution_time_file, mode='a', newline='') as file:
+        #             writer = csv.writer(file)
+        #             avg_time_to_save = np.mean(self.avg_time) if self.avg_time else 0
+        #             writer.writerow([exacution_time, avg_time_to_save])
+       
+        
         ### Rn ###
         # joint velocity(w2)
         joint_vel = torch.sum(torch.square(self._robot.data.joint_vel), dim=1)
@@ -405,32 +417,11 @@ class AnymalCEnv(DirectRLEnv):
             "Re": self.cfg.w1* torch.exp(-(foot_pos_deviation/self.cfg.sigma))* self.step_dt,
             "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt, 
         }
-        # if self.action_index == 0:
-        #     rewards = {
-        #         "Re": self.cfg.w1* torch.exp(-(RF_foot_pos_deviation/self.cfg.sigma))* self.step_dt,
-        #         "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt, 
-        #     }
-        # elif self.action_index == 1:
-        #     rewards = {
-        #         "Re": self.cfg.w1* torch.exp(-(LF_foot_pos_deviation/self.cfg.sigma))* self.step_dt,
-        #         "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt,
-        #     }
-        ### for high level policy
-        # rewards = {
-        #     "Rm": self.cfg.w1* torch.exp(-(mass_deviation/self.cfg.sigma))* self.step_dt,
-        #     "Rn": (self.cfg.w2 * joint_vel + self.cfg.w3 * joint_accel + self.cfg.w4 * joint_torques + self.cfg.w5 * action_rate + self.cfg.w6 * contacts + self.cfg.w7 * died)* self.step_dt, 
-        # }
         ###
         reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
         # Logging
         for key, value in rewards.items():
             self._episode_sums[key] += value
-
-        # wandb.log({
-        #     "reward": reward,
-        #     "Re": rewards["Re"],
-        #     "Rn": rewards["Rn"]
-        #     })
 
         return reward
 
@@ -441,8 +432,8 @@ class AnymalCEnv(DirectRLEnv):
         return died, time_out
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
-        # for i in env_ids:
-        #     self.resampled[i.item()] = 0
+        for i in env_ids:
+            self.resampled[i.item()] = 0
 
         if env_ids is None or len(env_ids) == self.num_envs:
             env_ids = self._robot._ALL_INDICES
@@ -456,19 +447,23 @@ class AnymalCEnv(DirectRLEnv):
         self._actions[env_ids] = 0
         ###
         self._previous_actions[env_ids] = 0.0
-        # Sample new commands
+        ### Sample new commands
         # first curriculum
         x = np.random.uniform(self.x[0], self.x[1]+2*self.ex)
         y = np.random.uniform(self.y[0]-self.ex, self.y[1]+self.ex)
-        # z = np.random.uniform(self.z[0], self.z[1])
         if self.z[1]+2*self.ex < 1.1:
             z = np.random.uniform(self.z[0], self.z[1]+2*self.ex)
         else:
             z = np.random.uniform(self.z[0], 1.2)
 
         self._commands[env_ids] = torch.tensor([x, y, z], device=self.device)
-        
-        # # test
+
+        ### time test
+        # x = np.random.uniform(self.x[0]+0.2*self.boxex, self.x[1]+0.2*self.boxex)
+        # y = np.random.uniform(self.y[0]-0.1*self.boxex, self.y[1]+0.1*self.boxex) # , self.y[1]+self.ex
+        # z = np.random.uniform(self.z[0], self.z[1])
+
+        ### hrl demo test
         # if self.xyz == my_config["xyz_l"]:
         #     self.xyz = my_config["xyz_r"]
         # else:
@@ -476,6 +471,8 @@ class AnymalCEnv(DirectRLEnv):
         
         # self._commands[env_ids] = torch.tensor(self.xyz, device=self.device)
         # target visualization
+        self._commands[env_ids] = torch.tensor([x, y, z], device=self.device)
+        
         self.target.set_marker_position(self._commands, self.root_position)
         self.target.reset_indices(env_ids)
         self.target.visualize()
@@ -522,3 +519,19 @@ class AnymalCEnv(DirectRLEnv):
             wandb.log(self.extras["log"]) 
             wandb.log({"avg_reward_100": avg_reward.item()})
             wandb.log({"curriculum": self.ex})
+        
+        # # test
+        # self.st = time.perf_counter()
+        # self.frist_touch_check = True
+        # if self.avg10times == 20:
+        #     avg_time = np.mean(self.avg_time)
+        #     print(f'Avg time {self.boxex} : {avg_time}')
+
+        #     # Save the average time to CSV
+        #     with open(execution_time_file, mode='a', newline='') as file:
+        #         writer = csv.writer(file)
+        #         writer.writerow([f"Batch Avg{self.boxex}", avg_time])
+
+        #     self.avg10times = 0 #reset
+        #     self.avg_time = []
+        #     self.boxex += 2
