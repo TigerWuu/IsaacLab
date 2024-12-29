@@ -39,8 +39,8 @@ my_config = {
     # "xyz0": [[0.6, 0.8], [-0.2, 0.2], [0.0, 1.2]], # paper box
     "ex": 0.0,
     "touched": 0.08, # touched threshold
-    "foot" : "RF_FOOT", # RF_FOOT, LF_FOOT
-    "wandb" : false,
+    "foot" : "LF_FOOT", # RF_FOOT, LF_FOOT
+    "wandb" : False,
 }
 
 class AnymalCEnv(DirectRLEnv):
