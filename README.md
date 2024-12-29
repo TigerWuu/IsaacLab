@@ -91,7 +91,7 @@ https://isaac-sim.github.io/IsaacLab/main/source/tutorials/04_sensors/add_sensor
 ## Training the agent
 run 
 ```bash
-./isaaclab.sh -p source/standalone/workflows/rsl_rl/train.py --task {Envs} --num_envs 64 --headless
+./isaaclab.sh -p source/standalone/workflows/rsl_rl/train.py --task {Envs} --num_envs 4096 --headless
 
 ### 其他可用參數解釋
 
